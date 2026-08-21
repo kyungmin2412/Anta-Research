@@ -229,9 +229,12 @@ export async function latestReport<T>(
   fetcher: (year: number) => Promise<T[]>,
 ): Promise<{ year: number; rows: T[] }> {
   const latest = latestBusinessYear();
-  for (const year of [latest, latest - 1]) {
-    const rows = await fetcher(year).catch(() => []);
-    if (rows.length > 0) return { year, rows };
+  const years = [latest, latest - 1];
+  // 최신 보고서가 아직 안 올라왔을 때를 대비해 직전 연도까지 한 번에 던진다.
+  // 순서대로 기다리면 DART를 두 번 왕복하게 되고, 그만큼 화면이 늦어진다.
+  const settled = await Promise.all(years.map((year) => fetcher(year).catch(() => [])));
+  for (let i = 0; i < years.length; i++) {
+    if (settled[i].length > 0) return { year: years[i], rows: settled[i] };
   }
   return { year: latest, rows: [] };
 }

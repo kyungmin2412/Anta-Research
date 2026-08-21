@@ -8,6 +8,7 @@ export default function SearchBar({ autoFocus = false }: { autoFocus?: boolean }
   return (
     <CorpSearch
       autoFocus={autoFocus}
+      prefetchHref={(corp) => `/company/${corp.corpCode}`}
       onSelect={(corp) => router.push(`/company/${corp.corpCode}`)}
     />
   );

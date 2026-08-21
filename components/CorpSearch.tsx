@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export type CorpResult = {
   corpCode: string;
@@ -14,12 +15,15 @@ export type CorpResult = {
  */
 export default function CorpSearch({
   onSelect,
+  prefetchHref,
   placeholder = "기업명 또는 종목코드를 입력하세요",
   autoFocus = false,
   size = "large",
   excluded = [],
 }: {
   onSelect: (corp: CorpResult) => void;
+  /** 주면 결과에 마우스를 올리거나 키보드로 짚을 때 그 화면을 미리 받아 둔다. */
+  prefetchHref?: (corp: CorpResult) => string;
   placeholder?: string;
   autoFocus?: boolean;
   size?: "large" | "small";
@@ -32,6 +36,8 @@ export default function CorpSearch({
   const [error, setError] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const prefetched = useRef(new Set<string>());
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -79,6 +85,13 @@ export default function CorpSearch({
 
   const visible = results.filter((item) => !excluded.includes(item.corpCode));
 
+  // 누르기 전에 미리 받아 두면 클릭 순간 화면이 바로 뜬다. 같은 회사는 한 번만.
+  function warm(corp: CorpResult) {
+    if (!prefetchHref || prefetched.current.has(corp.corpCode)) return;
+    prefetched.current.add(corp.corpCode);
+    router.prefetch(prefetchHref(corp));
+  }
+
   function choose(corp: CorpResult) {
     setOpen(false);
     setQuery("");
@@ -89,10 +102,14 @@ export default function CorpSearch({
     if (!open || visible.length === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setHighlight((prev) => (prev + 1) % visible.length);
+      const next = (highlight + 1) % visible.length;
+      setHighlight(next);
+      warm(visible[next]);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setHighlight((prev) => (prev - 1 + visible.length) % visible.length);
+      const next = (highlight - 1 + visible.length) % visible.length;
+      setHighlight(next);
+      warm(visible[next]);
     } else if (event.key === "Enter") {
       event.preventDefault();
       choose(visible[Math.min(highlight, visible.length - 1)]);
@@ -153,7 +170,10 @@ export default function CorpSearch({
                 <li key={item.corpCode}>
                   <button
                     type="button"
-                    onMouseEnter={() => setHighlight(index)}
+                    onMouseEnter={() => {
+                      setHighlight(index);
+                      warm(item);
+                    }}
                     onClick={() => choose(item)}
                     className={`flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors ${
                       index === highlight ? "bg-grey-100" : "bg-transparent"

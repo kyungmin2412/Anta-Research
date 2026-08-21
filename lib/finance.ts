@@ -195,7 +195,6 @@ const QUARTER_REPORT: Record<number, ReportCode> = {
   4: REPORT_CODE.ANNUAL,
 };
 
-type Snapshot = { metrics: FinancialMetrics; fsDiv: "CFS" | "OFS" };
 
 async function fetchOne(
   corpCode: string,
@@ -216,18 +215,32 @@ async function fetchOne(
   return metrics;
 }
 
-/** 한 보고서를 읽어 계정을 뽑는다. 연결이 없으면 별도로 물러선다. */
-async function fetchReport(
+type PeriodRequest = { year: number; reportCode: ReportCode };
+
+/**
+ * 여러 기간의 보고서를 한꺼번에 가져온다.
+ *
+ * 연결을 전 기간에 먼저 던지고, 하나도 없을 때만 별도로 다시 던진다. 기간마다
+ * 연결→별도로 물러서면 아직 공시되지 않은 보고서 하나 때문에 전체가 DART를 한
+ * 번 더 왕복하게 된다. 한 회사의 추이를 볼 때 연결과 별도를 섞으면 비교 기준도
+ * 어긋나므로, 회사 단위로 한 가지 기준을 정하는 편이 맞다.
+ */
+async function fetchPeriods(
   corpCode: string,
-  year: number,
-  reportCode: ReportCode,
+  targets: PeriodRequest[],
   cumulative: boolean,
-): Promise<Snapshot | null> {
+): Promise<{ metrics: Array<FinancialMetrics | null>; fsDiv: "CFS" | "OFS" | null }> {
   for (const fsDiv of ["CFS", "OFS"] as const) {
-    const metrics = await fetchOne(corpCode, year, reportCode, fsDiv, cumulative);
-    if (metrics) return { metrics, fsDiv };
+    const metrics = await Promise.all(
+      targets.map((target) =>
+        fetchOne(corpCode, target.year, target.reportCode, fsDiv, cumulative).catch(
+          () => null,
+        ),
+      ),
+    );
+    if (metrics.some((item) => item !== null)) return { metrics, fsDiv };
   }
-  return null;
+  return { metrics: targets.map(() => null), fsDiv: null };
 }
 
 /**
@@ -260,27 +273,21 @@ export async function getAnnualSeries(
   const latest = latestBusinessYear();
   const targets = Array.from({ length: count }, (_, i) => latest - i);
 
-  const settled = await Promise.all(
-    targets.map((year) =>
-      fetchReport(corpCode, year, REPORT_CODE.ANNUAL, false).catch(() => null),
-    ),
+  const { metrics, fsDiv } = await fetchPeriods(
+    corpCode,
+    targets.map((year) => ({ year, reportCode: REPORT_CODE.ANNUAL })),
+    false,
   );
 
   const periods: FinancialPeriod[] = [];
-  settled.forEach((snapshot, index) => {
-    if (!snapshot) return;
+  metrics.forEach((item, index) => {
+    if (!item || !fsDiv) return;
     const year = targets[index];
-    periods.push({
-      ...snapshot.metrics,
-      label: `${year}`,
-      year,
-      quarter: null,
-      fsDiv: snapshot.fsDiv,
-    });
+    periods.push({ ...item, label: `${year}`, year, quarter: null, fsDiv });
   });
   periods.sort((a, b) => a.year - b.year);
 
-  return { periods, fsDiv: periods.at(-1)?.fsDiv ?? null, granularity: "annual" };
+  return { periods, fsDiv, granularity: "annual" };
 }
 
 /**
@@ -319,16 +326,19 @@ export async function getQuarterlySeries(
     }
   }
 
-  const settled = await Promise.all(
-    requests.map(({ year, quarter }) =>
-      fetchReport(corpCode, year, QUARTER_REPORT[quarter], true).catch(() => null),
-    ),
+  const { metrics, fsDiv } = await fetchPeriods(
+    corpCode,
+    requests.map(({ year, quarter }) => ({
+      year,
+      reportCode: QUARTER_REPORT[quarter],
+    })),
+    true,
   );
 
-  const cumulative = new Map<string, Snapshot>();
+  const cumulative = new Map<string, FinancialMetrics>();
   requests.forEach(({ year, quarter }, index) => {
-    const snapshot = settled[index];
-    if (snapshot) cumulative.set(`${year}-${quarter}`, snapshot);
+    const item = metrics[index];
+    if (item) cumulative.set(`${year}-${quarter}`, item);
   });
 
   const periods: FinancialPeriod[] = [];
@@ -339,33 +349,33 @@ export async function getQuarterlySeries(
     // 2분기 이후인데 직전 누적이 없으면 차감할 수 없어 건너뛴다.
     if (quarter > 1 && !previous) continue;
 
-    const metrics = {} as FinancialMetrics;
+    const derived = {} as FinancialMetrics;
     for (const key of METRIC_KEYS) {
-      const value = current.metrics[key];
+      const value = current[key];
       if (!MATCHERS[key].flow) {
-        metrics[key] = value;
+        derived[key] = value;
         continue;
       }
       if (value === null) {
-        metrics[key] = null;
+        derived[key] = null;
       } else if (quarter === 1) {
-        metrics[key] = value;
+        derived[key] = value;
       } else {
-        const before = previous!.metrics[key];
-        metrics[key] = before === null ? null : value - before;
+        const before = previous![key];
+        derived[key] = before === null ? null : value - before;
       }
     }
 
     periods.push({
-      ...metrics,
+      ...derived,
       label: `${String(year).slice(2)} ${quarter}Q`,
       year,
       quarter,
-      fsDiv: current.fsDiv,
+      fsDiv: fsDiv!,
     });
   }
 
-  return { periods, fsDiv: periods.at(-1)?.fsDiv ?? null, granularity: "quarter" };
+  return { periods, fsDiv, granularity: "quarter" };
 }
 
 export type SeparateComparison = {
@@ -382,13 +392,20 @@ export async function getSeparateSnapshot(
   corpCode: string,
 ): Promise<SeparateComparison | null> {
   const latest = latestBusinessYear();
-  for (const year of [latest, latest - 1]) {
-    const [consolidated, separate] = await Promise.all([
-      fetchOne(corpCode, year, REPORT_CODE.ANNUAL, "CFS", false).catch(() => null),
-      fetchOne(corpCode, year, REPORT_CODE.ANNUAL, "OFS", false).catch(() => null),
-    ]);
+  const years = [latest, latest - 1];
+  // 두 해를 한 번에 던진다. 연도별로 기다리면 DART를 두 번 왕복하게 된다.
+  const settled = await Promise.all(
+    years.map((year) =>
+      Promise.all([
+        fetchOne(corpCode, year, REPORT_CODE.ANNUAL, "CFS", false).catch(() => null),
+        fetchOne(corpCode, year, REPORT_CODE.ANNUAL, "OFS", false).catch(() => null),
+      ]),
+    ),
+  );
+  for (let i = 0; i < years.length; i++) {
+    const [consolidated, separate] = settled[i];
     // 연결과 별도가 모두 있어야 비교가 의미 있다.
-    if (consolidated && separate) return { year, consolidated, separate };
+    if (consolidated && separate) return { year: years[i], consolidated, separate };
   }
   return null;
 }

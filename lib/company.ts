@@ -1,4 +1,5 @@
 import { dartJson, dartJsonOptional, REPORT_CODE } from "./dart";
+import { latestBusinessYear } from "./finance";
 import { yyyymmdd } from "./format";
 
 export type CompanyProfile = {
@@ -140,6 +141,21 @@ export async function getEmployees(
     60 * 60 * 24,
   );
   return data?.list ?? [];
+}
+
+/**
+ * 최신 사업보고서 기준 데이터를 가져온다.
+ * 아직 제출 전이라 비어 있으면 직전 연도로 한 번 더 시도한다.
+ */
+export async function latestReport<T>(
+  fetcher: (year: number) => Promise<T[]>,
+): Promise<{ year: number; rows: T[] }> {
+  const latest = latestBusinessYear();
+  for (const year of [latest, latest - 1]) {
+    const rows = await fetcher(year).catch(() => []);
+    if (rows.length > 0) return { year, rows };
+  }
+  return { year: latest, rows: [] };
 }
 
 export function parseCount(raw: string | undefined): number | null {

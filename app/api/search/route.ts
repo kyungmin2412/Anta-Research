@@ -16,7 +16,14 @@ export async function GET(request: Request) {
   }
 
   try {
-    const results = await searchCorps(query);
+    const found = await searchCorps(query);
+    // 검색용 정규화 키는 서버 내부에서만 쓰므로 응답에 싣지 않는다.
+    const results = found.map(({ corpCode, corpName, corpEngName, stockCode }) => ({
+      corpCode,
+      corpName,
+      corpEngName,
+      stockCode,
+    }));
     return NextResponse.json({ results });
   } catch (error) {
     const message =

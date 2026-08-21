@@ -172,14 +172,20 @@ async function fetchYear(
   return null;
 }
 
+/**
+ * 사업보고서가 나와 있을 법한 가장 최근 사업연도.
+ * 결산 후 90일 이내 제출이므로 4월 이전에는 전전년도가 최신이다.
+ */
+export function latestBusinessYear(now = new Date()): number {
+  return now.getMonth() >= 3 ? now.getFullYear() - 1 : now.getFullYear() - 2;
+}
+
 /** 최근 사업연도부터 count개 연도의 연간 재무 데이터를 모은다. */
 export async function getFinancialSeries(
   corpCode: string,
   count = 5,
 ): Promise<FinancialSeries> {
-  const now = new Date();
-  // 사업보고서는 결산 후 90일 이내 제출되므로 4월 이전에는 전전년도가 최신이다.
-  const latest = now.getMonth() >= 3 ? now.getFullYear() - 1 : now.getFullYear() - 2;
+  const latest = latestBusinessYear();
   const targets = Array.from({ length: count }, (_, i) => latest - i);
 
   const settled = await Promise.all(

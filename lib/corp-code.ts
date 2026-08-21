@@ -10,6 +10,9 @@ export type CorpEntry = {
   corpEngName: string;
   stockCode: string;
   modifyDate: string;
+  /** 검색용 정규화 키. 11만 건을 매 요청마다 정규화하지 않도록 파싱 때 한 번만 만든다. */
+  nameKey: string;
+  engKey: string;
 };
 
 // 서버리스 환경에서는 프로젝트 디렉터리가 읽기 전용이라 임시 디렉터리를 쓴다.
@@ -58,12 +61,15 @@ function parseCorpCodeXml(xml: string): CorpEntry[] {
     const corpCode = fields.corp_code;
     const corpName = fields.corp_name;
     if (!corpCode || !corpName) continue;
+    const corpEngName = fields.corp_eng_name ?? "";
     entries.push({
       corpCode,
       corpName,
-      corpEngName: fields.corp_eng_name ?? "",
+      corpEngName,
       stockCode: fields.stock_code ?? "",
       modifyDate: fields.modify_date ?? "",
+      nameKey: normalize(corpName),
+      engKey: normalize(corpEngName),
     });
   }
   return entries;
@@ -135,17 +141,17 @@ export async function searchCorps(query: string, limit = 20): Promise<CorpEntry[
   if (!needle) return [];
   const entries = await loadCorpEntries();
 
+  const trimmed = query.trim();
   const scored: Array<{ entry: CorpEntry; score: number }> = [];
   for (const entry of entries) {
-    const name = normalize(entry.corpName);
-    const eng = normalize(entry.corpEngName);
+    const { nameKey, engKey } = entry;
     let score = -1;
-    if (name === needle) score = 0;
-    else if (entry.stockCode === query.trim()) score = 0;
-    else if (name.startsWith(needle)) score = 1;
-    else if (name.includes(needle)) score = 2;
-    else if (eng && eng.startsWith(needle)) score = 3;
-    else if (eng && eng.includes(needle)) score = 4;
+    if (nameKey === needle) score = 0;
+    else if (entry.stockCode === trimmed) score = 0;
+    else if (nameKey.startsWith(needle)) score = 1;
+    else if (nameKey.includes(needle)) score = 2;
+    else if (engKey && engKey.startsWith(needle)) score = 3;
+    else if (engKey && engKey.includes(needle)) score = 4;
     if (score < 0) continue;
     // 상장사를 우선 노출한다.
     if (!entry.stockCode) score += 5;
@@ -156,16 +162,4 @@ export async function searchCorps(query: string, limit = 20): Promise<CorpEntry[
     (a, b) => a.score - b.score || a.entry.corpName.length - b.entry.corpName.length,
   );
   return scored.slice(0, limit).map((item) => item.entry);
-}
-
-export async function findCorp(corpCode: string): Promise<CorpEntry | null> {
-  const entries = await loadCorpEntries();
-  return entries.find((entry) => entry.corpCode === corpCode) ?? null;
-}
-
-/** 상장사 중 이름 순으로 일부를 돌려준다. (홈 화면 추천용 폴백) */
-export async function listedSample(codes: string[]): Promise<CorpEntry[]> {
-  const entries = await loadCorpEntries();
-  const byStock = new Map(entries.filter((e) => e.stockCode).map((e) => [e.stockCode, e]));
-  return codes.map((code) => byStock.get(code)).filter((e): e is CorpEntry => Boolean(e));
 }

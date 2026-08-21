@@ -43,7 +43,11 @@
 | `lib/finance.ts` | 재무제표 계정 매핑과 비율 계산 |
 | `components/FinancialCharts.tsx` | Recharts 기반 실적·수익성 차트 |
 
-기업 고유번호 목록(`corpCode.xml`, 약 10만 건)은 첫 검색 때 내려받아 임시 디렉터리에 24시간 보관합니다. 나머지 응답은 Next.js의 `revalidate`로 캐싱해 DART의 일일 호출 한도(20,000건)를 아낍니다.
+기업 고유번호 목록(`corpCode.xml`, 약 11만 건)은 `npm run build`가 미리 내려받아 `data/corp-index.tsv`로 만들어 둡니다. 서버 인스턴스가 새로 뜰 때마다 1.4MB를 다시 받지 않아도 되어, 첫 검색이 4초대에서 0.3초대로 줄어듭니다.
+
+`DART_API_KEY` 없이 빌드하면 색인을 건너뛰고, 런타임이 예전처럼 DART에서 직접 받아 임시 디렉터리에 24시간 보관합니다. 색인은 빌드 시점 목록이라 그 뒤 새로 등록된 법인은 다음 배포 때 반영됩니다.
+
+나머지 응답은 Next.js의 `revalidate`로 캐싱해 DART의 일일 호출 한도(20,000건)를 아낍니다.
 
 ## 주의
 

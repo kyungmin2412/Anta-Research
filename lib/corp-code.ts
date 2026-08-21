@@ -107,11 +107,57 @@ async function download(): Promise<CorpEntry[]> {
   return entries;
 }
 
-/** 전체 고유번호 목록. 메모리 → 디스크 → DART 순으로 조회하고 24시간 캐싱한다. */
+const BUILT_INDEX = path.join(process.cwd(), "data", "corp-index.tsv");
+
+/**
+ * 빌드 때 만들어 둔 색인을 읽는다. (scripts/build-corp-index.mjs)
+ *
+ * 이게 있으면 DART에서 목록을 받아올 필요가 없다. 서버 인스턴스가 새로 뜰 때마다
+ * 1.4MB를 다시 받던 비용이 통째로 사라진다.
+ */
+async function readBuiltIndex(): Promise<CorpEntry[] | null> {
+  try {
+    const raw = await fs.readFile(BUILT_INDEX, "utf8");
+    const lines = raw.split("\n");
+    const entries: CorpEntry[] = [];
+    for (const line of lines) {
+      if (!line) continue;
+      const [corpCode, corpName, corpEngName = "", stockCode = ""] = line.split("\t");
+      if (!corpCode || !corpName) continue;
+      entries.push({
+        corpCode,
+        corpName,
+        corpEngName,
+        stockCode,
+        modifyDate: "",
+        nameKey: normalize(corpName),
+        engKey: normalize(corpEngName),
+      });
+    }
+    return entries.length > 0 ? entries : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 전체 고유번호 목록.
+ * 빌드 색인 → 메모리 → 디스크 → DART 순으로 찾는다.
+ */
 export async function loadCorpEntries(): Promise<CorpEntry[]> {
   if (memoryCache && Date.now() - memoryCache.fetchedAt < CACHE_TTL_MS) {
     return memoryCache.entries;
   }
+
+  if (!memoryCache) {
+    const built = await readBuiltIndex();
+    if (built) {
+      // 빌드 시점 목록이라 다음 배포까지 그대로다. 새로 등록된 법인은 빠질 수 있다.
+      memoryCache = { fetchedAt: Date.now(), entries: built };
+      return built;
+    }
+  }
+
   if (!memoryCache) {
     const disk = await readDiskCache();
     if (disk && Date.now() - disk.fetchedAt < CACHE_TTL_MS) {

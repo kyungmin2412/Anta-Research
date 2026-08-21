@@ -11,3 +11,6 @@ build
 .vercel
 next-env.d.ts
 tsconfig.tsbuildinfo
+
+# 빌드 때 생성되는 고유번호 색인
+data/

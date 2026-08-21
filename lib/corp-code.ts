@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { unzipSync } from "fflate";
 import { dartBinary } from "./dart";
@@ -11,7 +12,8 @@ export type CorpEntry = {
   modifyDate: string;
 };
 
-const CACHE_DIR = path.join(process.cwd(), ".cache");
+// 서버리스 환경에서는 프로젝트 디렉터리가 읽기 전용이라 임시 디렉터리를 쓴다.
+const CACHE_DIR = path.join(os.tmpdir(), "anta-research");
 const CACHE_FILE = path.join(CACHE_DIR, "corp-code.json");
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 

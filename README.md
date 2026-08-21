@@ -43,7 +43,7 @@
 | `lib/finance.ts` | 재무제표 계정 매핑과 비율 계산 |
 | `components/FinancialCharts.tsx` | Recharts 기반 실적·수익성 차트 |
 
-기업 고유번호 목록(`corpCode.xml`, 약 10만 건)은 첫 검색 때 내려받아 `.cache/`에 24시간 보관합니다. 나머지 응답은 Next.js의 `revalidate`로 캐싱해 DART의 일일 호출 한도(20,000건)를 아낍니다.
+기업 고유번호 목록(`corpCode.xml`, 약 10만 건)은 첫 검색 때 내려받아 임시 디렉터리에 24시간 보관합니다. 나머지 응답은 Next.js의 `revalidate`로 캐싱해 DART의 일일 호출 한도(20,000건)를 아낍니다.
 
 ## 주의
 

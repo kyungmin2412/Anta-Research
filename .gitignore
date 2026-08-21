@@ -11,5 +11,3 @@ build
 .vercel
 next-env.d.ts
 tsconfig.tsbuildinfo
-
-.cache/

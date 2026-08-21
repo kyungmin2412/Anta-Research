@@ -1,3 +1,4 @@
+import { lookupCorpCodes } from "./corp-code";
 import { dartJson, dartJsonOptional, REPORT_CODE } from "./dart";
 import { latestBusinessYear } from "./finance";
 import { yyyymmdd } from "./format";
@@ -141,6 +142,83 @@ export async function getEmployees(
     60 * 60 * 24,
   );
   return data?.list ?? [];
+}
+
+type AffiliateRow = {
+  inv_prm: string;
+  invstmnt_purps?: string;
+  trmend_blce_qota_rt?: string;
+  trmend_blce_acntbk_amount?: string;
+  recent_bsns_year_fnnr_sttus_tot_assets?: string;
+  recent_bsns_year_fnnr_sttus_thstrm_ntpf?: string;
+};
+
+export type Affiliate = {
+  name: string;
+  purpose: string;
+  ownershipRate: number | null;
+  bookValue: number | null;
+  totalAssets: number | null;
+  netIncome: number | null;
+  /** DART에 등록된 법인이면 그 고유번호. 분석 화면으로 연결하는 데 쓴다. */
+  corpCode: string | null;
+};
+
+/**
+ * 타법인 출자현황. DART에는 자회사 목록 API가 따로 없어서, 지분을 들고 있는
+ * 법인과 그 재무현황을 담은 이 공시를 대신 쓴다. 대규모법인만 제출한다.
+ */
+export async function getAffiliates(
+  corpCode: string,
+  year: number,
+): Promise<Affiliate[]> {
+  const data = await dartJsonOptional<{
+    status: string;
+    message: string;
+    list?: AffiliateRow[];
+  }>(
+    "otrCprInvstmntSttus.json",
+    { corp_code: corpCode, bsns_year: year, reprt_code: REPORT_CODE.ANNUAL },
+    60 * 60 * 24,
+  );
+  const rows = data?.list;
+  if (!rows || rows.length === 0) return [];
+
+  const names = rows.map((row) => (row.inv_prm ?? "").trim()).filter(Boolean);
+  const codes = await lookupCorpCodes(names);
+
+  const affiliates = rows
+    .map((row): Affiliate | null => {
+      const name = (row.inv_prm ?? "").trim();
+      if (!name) return null;
+      return {
+        name,
+        purpose: (row.invstmnt_purps ?? "").trim(),
+        ownershipRate: parseRate(row.trmend_blce_qota_rt),
+        // 공시 금액 단위는 천원이다.
+        bookValue: scaleThousand(parseCount(row.trmend_blce_acntbk_amount)),
+        totalAssets: scaleThousand(
+          parseCount(row.recent_bsns_year_fnnr_sttus_tot_assets),
+        ),
+        netIncome: scaleThousand(
+          parseCount(row.recent_bsns_year_fnnr_sttus_thstrm_ntpf),
+        ),
+        corpCode: codes.get(name) ?? null,
+      };
+    })
+    .filter((row): row is Affiliate => row !== null);
+
+  affiliates.sort((a, b) => (b.ownershipRate ?? -1) - (a.ownershipRate ?? -1));
+  return affiliates;
+}
+
+function scaleThousand(value: number | null): number | null {
+  return value === null ? null : value * 1000;
+}
+
+function parseRate(raw: string | undefined): number | null {
+  const value = parseCount(raw?.replace(/%/g, ""));
+  return value === null ? null : value;
 }
 
 /**

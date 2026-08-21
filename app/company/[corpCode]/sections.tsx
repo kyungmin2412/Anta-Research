@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { PerformanceChart, RatioChart } from "@/components/FinancialCharts";
 import { DeltaBadge, EmptyState, Section, StatTile } from "@/components/ui";
 import {
+  getAffiliates,
   getDisclosures,
   getEmployees,
   getMajorShareholders,
@@ -8,7 +10,12 @@ import {
   parseCount,
 } from "@/lib/company";
 import { dartViewerUrl } from "@/lib/dart";
-import { computeRatios, getFinancialSeries } from "@/lib/finance";
+import {
+  computeRatios,
+  getFinancialSeries,
+  getSeparateSnapshot,
+  type Granularity,
+} from "@/lib/finance";
 import {
   formatDartDate,
   formatKrw,
@@ -24,7 +31,7 @@ function Skeleton({ className = "" }: { className?: string }) {
 export function FinancialsSkeleton() {
   return (
     <>
-      <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="card p-5">
             <Skeleton className="h-3.5 w-20" />
@@ -57,31 +64,46 @@ export function ListSkeleton({ title, rows = 3 }: { title: string; rows?: number
   );
 }
 
-export async function FinancialsSection({ corpCode }: { corpCode: string }) {
-  const series = await getFinancialSeries(corpCode);
-  const latest = series.years.at(-1);
+export async function FinancialsSection({
+  corpCode,
+  granularity,
+}: {
+  corpCode: string;
+  granularity: Granularity;
+}) {
+  const series = await getFinancialSeries(corpCode, granularity);
+  const latest = series.periods.at(-1);
+  const isQuarter = granularity === "quarter";
 
   if (!latest) {
     return (
-      <div className="mt-7">
-        <EmptyState message="이 회사의 사업보고서 재무제표를 찾지 못했어요. 비상장 법인이거나 아직 공시된 재무 데이터가 없을 수 있습니다." />
+      <div className="mt-4">
+        <EmptyState
+          message={
+            isQuarter
+              ? "분기보고서 재무제표를 찾지 못했어요. 분기 공시 의무가 없는 법인일 수 있습니다."
+              : "사업보고서 재무제표를 찾지 못했어요. 비상장 법인이거나 아직 공시된 재무 데이터가 없을 수 있습니다."
+          }
+        />
       </div>
     );
   }
 
-  const ratios = computeRatios(latest, series.years.at(-2));
+  const ratios = computeRatios(latest, series.periods.at(-2));
+  const periodUnit = isQuarter ? "분기" : "연도";
+  const growthLabel = isQuarter ? "직전 분기 대비" : "전년 대비";
 
-  const performanceData = series.years.map((year) => ({
-    year: `${year.year}`,
-    revenue: year.revenue,
-    operatingIncome: year.operatingIncome,
-    netIncome: year.netIncome,
+  const performanceData = series.periods.map((period) => ({
+    label: period.label,
+    revenue: period.revenue,
+    operatingIncome: period.operatingIncome,
+    netIncome: period.netIncome,
   }));
 
-  const ratioData = series.years.map((year, index) => {
-    const computed = computeRatios(year, series.years[index - 1]);
+  const ratioData = series.periods.map((period, index) => {
+    const computed = computeRatios(period, series.periods[index - 1]);
     return {
-      year: `${year.year}`,
+      label: period.label,
       operatingMargin: computed.operatingMargin,
       netMargin: computed.netMargin,
       roe: computed.roe,
@@ -90,13 +112,13 @@ export async function FinancialsSection({ corpCode }: { corpCode: string }) {
 
   return (
     <>
-      <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile
-          label={`매출액 (${latest.year})`}
+          label={`매출액 (${latest.label})`}
           value={formatKrw(latest.revenue)}
           sub={
             ratios.revenueGrowth !== null
-              ? `전년 대비 ${formatSignedPercent(ratios.revenueGrowth)}`
+              ? `${growthLabel} ${formatSignedPercent(ratios.revenueGrowth)}`
               : undefined
           }
         />
@@ -117,7 +139,7 @@ export async function FinancialsSection({ corpCode }: { corpCode: string }) {
           }
         />
         <StatTile
-          label="당기순이익"
+          label={isQuarter ? "분기순이익" : "당기순이익"}
           value={formatKrw(latest.netIncome)}
           sub={
             ratios.netMargin !== null
@@ -137,13 +159,22 @@ export async function FinancialsSection({ corpCode }: { corpCode: string }) {
 
       <Section
         title="실적 흐름"
-        description={`최근 ${series.years.length}개 사업연도 · ${
+        description={`최근 ${series.periods.length}개 ${periodUnit} · ${
           series.fsDiv === "CFS" ? "연결재무제표" : "별도재무제표"
         } · 단위 원`}
       >
         <div className="card p-5 pt-6">
-          <PerformanceChart data={performanceData} />
+          <PerformanceChart
+            data={performanceData}
+            netLabel={isQuarter ? "분기순이익" : "당기순이익"}
+          />
         </div>
+        {isQuarter && (
+          <p className="mt-2.5 px-1 text-[12px] leading-relaxed break-keep text-grey-500">
+            분기 손익과 현금흐름은 공시된 누적 금액에서 직전 분기 누적을 뺀 값입니다.
+            회사가 수정 공시를 하면 원문과 차이가 날 수 있습니다.
+          </p>
+        )}
       </Section>
 
       <Section title="수익성" description="매출에서 얼마를 남기는지 보여줍니다.">
@@ -153,8 +184,16 @@ export async function FinancialsSection({ corpCode }: { corpCode: string }) {
         <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile label="영업이익률" value={formatPercent(ratios.operatingMargin)} />
           <StatTile label="순이익률" value={formatPercent(ratios.netMargin)} />
-          <StatTile label="ROE" value={formatPercent(ratios.roe)} sub="자기자본이익률" />
-          <StatTile label="ROA" value={formatPercent(ratios.roa)} sub="총자산이익률" />
+          <StatTile
+            label="ROE"
+            value={formatPercent(ratios.roe)}
+            sub={isQuarter ? "분기 순이익 기준" : "자기자본이익률"}
+          />
+          <StatTile
+            label="ROA"
+            value={formatPercent(ratios.roa)}
+            sub={isQuarter ? "분기 순이익 기준" : "총자산이익률"}
+          />
         </div>
       </Section>
 
@@ -221,7 +260,7 @@ export async function FinancialsSection({ corpCode }: { corpCode: string }) {
         </div>
       </Section>
 
-      <Section title="현금흐름" description={`${latest.year} 사업연도 기준`}>
+      <Section title="현금흐름" description={`${latest.label} 기준`}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <StatTile
             label="영업활동"
@@ -241,20 +280,20 @@ export async function FinancialsSection({ corpCode }: { corpCode: string }) {
         </div>
       </Section>
 
-      <Section title="연도별 재무 요약" description="단위: 원">
+      <Section title={`${periodUnit}별 재무 요약`} description="단위: 원">
         <div className="card thin-scroll overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse">
+          <table className="w-full border-collapse" style={{ minWidth: 640 }}>
             <thead>
               <tr className="border-b border-grey-100">
                 <th className="px-5 py-3.5 text-left text-[13px] font-semibold text-grey-500">
                   항목
                 </th>
-                {series.years.map((year) => (
+                {series.periods.map((period) => (
                   <th
-                    key={year.year}
-                    className="tnum px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500"
+                    key={period.label}
+                    className="tnum px-5 py-3.5 text-right text-[13px] font-semibold whitespace-nowrap text-grey-500"
                   >
-                    {year.year}
+                    {period.label}
                   </th>
                 ))}
               </tr>
@@ -264,34 +303,34 @@ export async function FinancialsSection({ corpCode }: { corpCode: string }) {
                 [
                   ["매출액", "revenue"],
                   ["영업이익", "operatingIncome"],
-                  ["당기순이익", "netIncome"],
+                  [isQuarter ? "분기순이익" : "당기순이익", "netIncome"],
                   ["자산총계", "assets"],
                   ["부채총계", "liabilities"],
                   ["자본총계", "equity"],
                 ] as const
               ).map(([label, key]) => (
                 <tr key={key} className="border-b border-grey-100 last:border-b-0">
-                  <td className="px-5 py-3.5 text-[14px] font-medium text-grey-800">
+                  <td className="px-5 py-3.5 text-[14px] font-medium whitespace-nowrap text-grey-800">
                     {label}
                   </td>
-                  {series.years.map((year) => (
+                  {series.periods.map((period) => (
                     <td
-                      key={year.year}
-                      className="tnum px-5 py-3.5 text-right text-[14px] text-grey-700"
+                      key={period.label}
+                      className="tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap text-grey-700"
                     >
-                      {formatKrw(year[key])}
+                      {formatKrw(period[key])}
                     </td>
                   ))}
                 </tr>
               ))}
               <tr className="bg-grey-50">
-                <td className="px-5 py-3.5 text-[14px] font-medium text-grey-800">
-                  매출 성장률
+                <td className="px-5 py-3.5 text-[14px] font-medium whitespace-nowrap text-grey-800">
+                  매출 증감률
                 </td>
-                {series.years.map((year, index) => (
-                  <td key={year.year} className="px-5 py-3.5 text-right">
+                {series.periods.map((period, index) => (
+                  <td key={period.label} className="px-5 py-3.5 text-right">
                     <DeltaBadge
-                      value={computeRatios(year, series.years[index - 1]).revenueGrowth}
+                      value={computeRatios(period, series.periods[index - 1]).revenueGrowth}
                     />
                   </td>
                 ))}
@@ -300,6 +339,175 @@ export async function FinancialsSection({ corpCode }: { corpCode: string }) {
           </table>
         </div>
       </Section>
+    </>
+  );
+}
+
+export async function AffiliatesSection({ corpCode }: { corpCode: string }) {
+  const [affiliates, separate] = await Promise.all([
+    latestReport((year) => getAffiliates(corpCode, year)),
+    getSeparateSnapshot(corpCode).catch(() => null),
+  ]);
+
+  if (affiliates.rows.length === 0 && !separate) return null;
+
+  const subsidiaries = affiliates.rows.filter(
+    (row) => (row.ownershipRate ?? 0) > 50,
+  ).length;
+
+  return (
+    <>
+      {separate?.consolidated && separate.separate && (
+        <Section
+          title="연결 vs 별도"
+          description={`${separate.year} 사업연도 · 자회사가 실적에 얼마나 보태는지 봅니다.`}
+        >
+          <div className="card thin-scroll overflow-x-auto">
+            <table className="w-full border-collapse" style={{ minWidth: 560 }}>
+              <thead>
+                <tr className="border-b border-grey-100">
+                  <th className="px-5 py-3.5 text-left text-[13px] font-semibold text-grey-500">
+                    항목
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
+                    연결 (자회사 포함)
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
+                    별도 (본사만)
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
+                    차이
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {(
+                  [
+                    ["매출액", "revenue"],
+                    ["영업이익", "operatingIncome"],
+                    ["당기순이익", "netIncome"],
+                    ["자산총계", "assets"],
+                  ] as const
+                ).map(([label, key]) => {
+                  const cfs = separate.consolidated![key];
+                  const ofs = separate.separate![key];
+                  const gap = cfs !== null && ofs !== null ? cfs - ofs : null;
+                  const share =
+                    cfs !== null && gap !== null && cfs !== 0 ? (gap / cfs) * 100 : null;
+                  return (
+                    <tr key={key} className="border-b border-grey-100 last:border-b-0">
+                      <td className="px-5 py-3.5 text-[14px] font-medium whitespace-nowrap text-grey-800">
+                        {label}
+                      </td>
+                      <td className="tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap text-grey-700">
+                        {formatKrw(cfs)}
+                      </td>
+                      <td className="tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap text-grey-700">
+                        {formatKrw(ofs)}
+                      </td>
+                      <td className="tnum px-5 py-3.5 text-right text-[14px] font-semibold whitespace-nowrap text-grey-900">
+                        {formatKrw(gap)}
+                        {share !== null && (
+                          <span className="ml-1.5 text-[12px] font-medium text-grey-500">
+                            {formatPercent(share, 0)}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2.5 px-1 text-[12px] leading-relaxed break-keep text-grey-500">
+            차이는 연결에서 별도를 뺀 값으로, 자회사가 더한 몫에 가깝습니다. 내부거래
+            제거 효과가 섞여 있어 자회사 실적 합계와 정확히 같지는 않습니다.
+          </p>
+        </Section>
+      )}
+
+      {affiliates.rows.length > 0 && (
+        <Section
+          title="출자 법인"
+          description={`${affiliates.year} 사업보고서 기준 · ${affiliates.rows.length}곳${
+            subsidiaries > 0 ? ` (지분 50% 초과 ${subsidiaries}곳)` : ""
+          }`}
+        >
+          <div className="card thin-scroll overflow-x-auto">
+            <table className="w-full border-collapse" style={{ minWidth: 680 }}>
+              <thead>
+                <tr className="border-b border-grey-100">
+                  <th className="px-5 py-3.5 text-left text-[13px] font-semibold text-grey-500">
+                    법인명
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
+                    지분율
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
+                    장부가액
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
+                    총자산
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
+                    당기순손익
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {affiliates.rows.map((row, index) => (
+                  <tr
+                    key={`${row.name}-${index}`}
+                    className="border-b border-grey-100 last:border-b-0"
+                  >
+                    <td className="px-5 py-3.5 text-[14px] font-medium text-grey-800">
+                      <span className="flex items-center gap-2">
+                        {row.corpCode ? (
+                          <Link
+                            href={`/company/${row.corpCode}`}
+                            className="text-blue-600 hover:text-blue-700 hover:underline"
+                          >
+                            {row.name}
+                          </Link>
+                        ) : (
+                          row.name
+                        )}
+                        {(row.ownershipRate ?? 0) > 50 && (
+                          <span className="shrink-0 rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700">
+                            종속
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="tnum px-5 py-3.5 text-right text-[14px] font-semibold whitespace-nowrap text-grey-900">
+                      {row.ownershipRate !== null
+                        ? `${row.ownershipRate.toFixed(2)}%`
+                        : "—"}
+                    </td>
+                    <td className="tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap text-grey-700">
+                      {formatKrw(row.bookValue)}
+                    </td>
+                    <td className="tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap text-grey-700">
+                      {formatKrw(row.totalAssets)}
+                    </td>
+                    <td
+                      className={`tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap ${
+                        (row.netIncome ?? 0) < 0 ? "text-blue-600" : "text-grey-700"
+                      }`}
+                    >
+                      {formatKrw(row.netIncome)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2.5 px-1 text-[12px] leading-relaxed break-keep text-grey-500">
+            DART 타법인 출자현황 공시입니다. 파란 이름을 누르면 그 법인의 분석 화면으로
+            넘어갑니다.
+          </p>
+        </Section>
+      )}
     </>
   );
 }
@@ -330,7 +538,7 @@ export async function OwnershipSection({ corpCode }: { corpCode: string }) {
           description={`${shareholders.year} 사업보고서 기준`}
         >
           <div className="card thin-scroll overflow-x-auto">
-            <table className="w-full min-w-[560px] border-collapse">
+            <table className="w-full border-collapse" style={{ minWidth: 560 }}>
               <thead>
                 <tr className="border-b border-grey-100">
                   <th className="px-5 py-3.5 text-left text-[13px] font-semibold text-grey-500">

@@ -136,6 +136,35 @@ function normalize(value: string): string {
   return value.toLowerCase().replace(/주식회사|\(주\)|㈜|[\s.,\-_]/g, "");
 }
 
+/**
+ * 법인명을 고유번호로 되짚는다. 출자 법인 목록처럼 이름만 있는 공시를
+ * 분석 화면으로 연결할 때 쓴다. 이름이 정확히 같을 때만 이어준다.
+ */
+export async function lookupCorpCodes(
+  names: string[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (names.length === 0) return result;
+
+  const entries = await loadCorpEntries().catch(() => [] as CorpEntry[]);
+  if (entries.length === 0) return result;
+
+  const byName = new Map<string, CorpEntry>();
+  for (const entry of entries) {
+    const existing = byName.get(entry.nameKey);
+    // 동명이인 법인이 있으면 상장사를 우선한다.
+    if (!existing || (!existing.stockCode && entry.stockCode)) {
+      byName.set(entry.nameKey, entry);
+    }
+  }
+
+  for (const name of names) {
+    const hit = byName.get(normalize(name));
+    if (hit) result.set(name, hit.corpCode);
+  }
+  return result;
+}
+
 export async function searchCorps(query: string, limit = 20): Promise<CorpEntry[]> {
   const needle = normalize(query);
   if (!needle) return [];

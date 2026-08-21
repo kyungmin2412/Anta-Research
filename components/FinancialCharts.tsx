@@ -13,14 +13,14 @@ import {
 import { formatKrwShort, formatPercent } from "@/lib/format";
 
 export type PerformancePoint = {
-  year: string;
+  label: string;
   revenue: number | null;
   operatingIncome: number | null;
   netIncome: number | null;
 };
 
 export type RatioPoint = {
-  year: string;
+  label: string;
   operatingMargin: number | null;
   netMargin: number | null;
   roe: number | null;
@@ -68,14 +68,84 @@ function TooltipCard({
   );
 }
 
-export function PerformanceChart({ data }: { data: PerformancePoint[] }) {
+/** 비교 화면에서 회사마다 한 줄씩 그린다. */
+export function MultiLineChart({
+  data,
+  series,
+  unit,
+}: {
+  data: Array<Record<string, string | number | null>>;
+  series: Array<{ key: string; name: string; color: string }>;
+  unit: "krw" | "percent";
+}) {
+  const format = (value: number) =>
+    unit === "krw" ? formatKrwShort(value) : formatPercent(value);
+
+  return (
+    <div>
+      <div className="h-[260px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -8 }}>
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} />
+            <YAxis
+              tick={AXIS}
+              tickLine={false}
+              axisLine={false}
+              width={unit === "krw" ? 64 : 52}
+              tickFormatter={(value: number) =>
+                unit === "krw" ? formatKrwShort(value) : `${value}%`
+              }
+            />
+            <Tooltip
+              cursor={{ stroke: "#d1d6db", strokeWidth: 1 }}
+              content={({ active, payload, label }) =>
+                active && payload?.length ? (
+                  <TooltipCard
+                    label={String(label)}
+                    items={payload.map((entry) => ({
+                      name: String(entry.name),
+                      color: String(entry.color),
+                      text: typeof entry.value === "number" ? format(entry.value) : "—",
+                    }))}
+                  />
+                ) : null
+              }
+            />
+            {series.map((item) => (
+              <Line
+                key={item.key}
+                type="monotone"
+                dataKey={item.key}
+                name={item.name}
+                stroke={item.color}
+                strokeWidth={2.5}
+                connectNulls
+                dot={{ r: 3, strokeWidth: 0, fill: item.color }}
+              />
+            ))}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <ChartLegend items={series.map((item) => [item.name, item.color])} />
+    </div>
+  );
+}
+
+export function PerformanceChart({
+  data,
+  netLabel = "당기순이익",
+}: {
+  data: PerformancePoint[];
+  netLabel?: string;
+}) {
   return (
     <div>
       <div className="h-[280px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -8 }}>
           <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="year" tick={AXIS} tickLine={false} axisLine={false} />
+          <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} />
           <YAxis
             tick={AXIS}
             tickLine={false}
@@ -119,7 +189,7 @@ export function PerformanceChart({ data }: { data: PerformancePoint[] }) {
           <Line
             type="monotone"
             dataKey="netIncome"
-            name="당기순이익"
+            name={netLabel}
             stroke="#b0b8c1"
             strokeWidth={2}
             strokeDasharray="4 4"
@@ -132,7 +202,7 @@ export function PerformanceChart({ data }: { data: PerformancePoint[] }) {
         items={[
           ["매출액", "#3182f6"],
           ["영업이익", "#f04452"],
-          ["당기순이익", "#b0b8c1"],
+          [netLabel, "#b0b8c1"],
         ]}
       />
     </div>
@@ -146,7 +216,7 @@ export function RatioChart({ data }: { data: RatioPoint[] }) {
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -12 }}>
           <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="year" tick={AXIS} tickLine={false} axisLine={false} />
+          <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} />
           <YAxis
             tick={AXIS}
             tickLine={false}

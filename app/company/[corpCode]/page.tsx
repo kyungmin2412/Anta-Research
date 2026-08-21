@@ -1,15 +1,17 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { InfoRow, Section } from "@/components/ui";
+import { InfoRow, Section, SegmentedTabs } from "@/components/ui";
 import {
   CORP_CLASS_LABEL,
   getCompanyProfile,
   type CompanyProfile,
 } from "@/lib/company";
 import { DartError } from "@/lib/dart";
+import type { Granularity } from "@/lib/finance";
 import { formatDartDate } from "@/lib/format";
 import {
+  AffiliatesSection,
   DisclosureSection,
   FinancialsSection,
   FinancialsSkeleton,
@@ -19,7 +21,10 @@ import {
 
 export const revalidate = 3600;
 
-type PageProps = { params: Promise<{ corpCode: string }> };
+type PageProps = {
+  params: Promise<{ corpCode: string }>;
+  searchParams: Promise<{ p?: string }>;
+};
 
 export async function generateMetadata({ params }: PageProps) {
   const { corpCode } = await params;
@@ -34,9 +39,12 @@ export async function generateMetadata({ params }: PageProps) {
   }
 }
 
-export default async function CompanyPage({ params }: PageProps) {
+export default async function CompanyPage({ params, searchParams }: PageProps) {
   const { corpCode } = await params;
   if (!/^\d{8}$/.test(corpCode)) notFound();
+
+  const granularity: Granularity =
+    (await searchParams).p === "q" ? "quarter" : "annual";
 
   // 회사 개요만 기다렸다가 머리말을 먼저 보여주고, 나머지 섹션은 스트리밍으로 채운다.
   let profile: CompanyProfile;
@@ -82,20 +90,42 @@ export default async function CompanyPage({ params }: PageProps) {
             {profile.corp_name_eng || profile.stock_name || "—"}
           </p>
         </div>
-        {homepage && (
-          <a
-            href={homepage}
-            target="_blank"
-            rel="noreferrer"
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/compare?codes=${corpCode}`}
             className="rounded-xl bg-white px-4 py-2.5 text-[14px] font-semibold text-grey-700 shadow-card ring-1 ring-grey-100 hover:bg-grey-100"
           >
-            홈페이지 방문
-          </a>
-        )}
+            다른 기업과 비교
+          </Link>
+          {homepage && (
+            <a
+              href={homepage}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-xl bg-white px-4 py-2.5 text-[14px] font-semibold text-grey-700 shadow-card ring-1 ring-grey-100 hover:bg-grey-100"
+            >
+              홈페이지
+            </a>
+          )}
+        </div>
       </header>
 
-      <Suspense fallback={<FinancialsSkeleton />}>
-        <FinancialsSection corpCode={corpCode} />
+      <div className="mt-6">
+        <SegmentedTabs
+          active={granularity}
+          options={[
+            { value: "annual", label: "연간 5개년", href: `/company/${corpCode}` },
+            { value: "quarter", label: "분기 8개", href: `/company/${corpCode}?p=q` },
+          ]}
+        />
+      </div>
+
+      <Suspense key={granularity} fallback={<FinancialsSkeleton />}>
+        <FinancialsSection corpCode={corpCode} granularity={granularity} />
+      </Suspense>
+
+      <Suspense fallback={<ListSkeleton title="출자 법인" rows={4} />}>
+        <AffiliatesSection corpCode={corpCode} />
       </Suspense>
 
       <Section title="기업 개요">

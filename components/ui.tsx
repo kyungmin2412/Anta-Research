@@ -1,4 +1,37 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
+
+/** 토스식 세그먼티드 컨트롤. 선택지가 URL을 바꾸므로 링크로 만든다. */
+export function SegmentedTabs({
+  options,
+  active,
+}: {
+  options: Array<{ label: string; href: string; value: string }>;
+  active: string;
+}) {
+  return (
+    <div className="inline-flex rounded-xl bg-grey-100 p-1">
+      {options.map((option) => {
+        const selected = option.value === active;
+        return (
+          <Link
+            key={option.value}
+            href={option.href}
+            scroll={false}
+            aria-current={selected ? "page" : undefined}
+            className={`rounded-lg px-4 py-2 text-[14px] font-semibold transition-colors ${
+              selected
+                ? "bg-white text-grey-900 shadow-card"
+                : "text-grey-500 hover:text-grey-700"
+            }`}
+          >
+            {option.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export function Section({
   title,

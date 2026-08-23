@@ -220,6 +220,75 @@ export function freeCashFlow(metrics: FinancialMetrics): number | null {
   return metrics.operatingCashFlow - (metrics.capex ?? 0);
 }
 
+/**
+ * 그 해 보고서의 손익 금액이 누적인지 가려낸다.
+ *
+ * 대부분은 당기누적금액 칸이 채워져 있어 누적으로 읽으면 되지만, 그 칸을 비우고
+ * 당기금액에 3개월치만 싣는 회사가 있다. 이때 누적으로 알고 차감하면 엉뚱한
+ * 값이 나온다. 매출은 기간이 길어질수록 줄어들 수 없으므로, 뒤 분기 매출이 앞
+ * 분기보다 작으면 애초에 누적이 아니었다고 본다.
+ */
+function looksCumulative(byQuarter: Map<number, FinancialMetrics>): boolean {
+  for (let quarter = 2; quarter <= 4; quarter++) {
+    const current = byQuarter.get(quarter)?.revenue;
+    const before = byQuarter.get(quarter - 1)?.revenue;
+    if (current === null || current === undefined) continue;
+    if (before === null || before === undefined) continue;
+    if (current < before) return false;
+  }
+  return true;
+}
+
+/**
+ * 한 분기의 3개월치를 만든다.
+ *
+ * 누적으로 싣는 회사는 직전 분기 누적을 뺀다. 3개월치를 싣는 회사는 1~3분기를
+ * 그대로 쓰되, 4분기만은 사업보고서에 연간 총액이 실리므로 앞 세 분기를 빼야
+ * 한다.
+ */
+function quarterMetrics(
+  byQuarter: Map<number, FinancialMetrics>,
+  quarter: number,
+  isCumulative: boolean,
+): FinancialMetrics | null {
+  const current = byQuarter.get(quarter);
+  if (!current) return null;
+
+  const previous = byQuarter.get(quarter - 1);
+  if (isCumulative && quarter > 1 && !previous) return null;
+
+  const earlier = [1, 2, 3].map((q) => byQuarter.get(q));
+  // 3개월치를 싣는 회사의 4분기는 앞 세 분기가 모두 있어야 뽑을 수 있다.
+  if (!isCumulative && quarter === 4 && earlier.some((item) => !item)) return null;
+
+  const derived = {} as FinancialMetrics;
+  for (const key of METRIC_KEYS) {
+    const value = current[key];
+    if (!MATCHERS[key].flow || value === null) {
+      derived[key] = value;
+      continue;
+    }
+    if (isCumulative) {
+      if (quarter === 1) derived[key] = value;
+      else {
+        const before = previous![key];
+        derived[key] = before === null ? null : value - before;
+      }
+      continue;
+    }
+    if (quarter < 4) {
+      derived[key] = value;
+      continue;
+    }
+    const sum = earlier.reduce<number | null>(
+      (acc, item) => (acc === null || item![key] === null ? null : acc + item![key]!),
+      0,
+    );
+    derived[key] = sum === null ? null : value - sum;
+  }
+  return derived;
+}
+
 /** 분기 보기에서 보여줄 분기 수. 약 5년치다. */
 export const QUARTER_COUNT = 20;
 /** 연간 보기에서 보여줄 사업연도 수. */
@@ -395,36 +464,27 @@ export async function getQuarterlySeries(
     true,
   );
 
-  const cumulative = new Map<string, FinancialMetrics>();
+  const byYear = new Map<number, Map<number, FinancialMetrics>>();
   requests.forEach(({ year, quarter }, index) => {
     const item = metrics[index];
-    if (item) cumulative.set(`${year}-${quarter}`, item);
+    if (!item) return;
+    const slot = byYear.get(year) ?? new Map<number, FinancialMetrics>();
+    slot.set(quarter, item);
+    byYear.set(year, slot);
   });
+
+  // 회사마다 공시 모양이 달라 연도별로 누적인지 아닌지 가려 둔다.
+  const cumulativeYear = new Map<number, boolean>();
+  for (const [year, slot] of byYear) cumulativeYear.set(year, looksCumulative(slot));
 
   const periods: FinancialPeriod[] = [];
   for (const { year, quarter } of targets) {
-    const current = cumulative.get(`${year}-${quarter}`);
-    if (!current) continue;
-    const previous = quarter > 1 ? cumulative.get(`${year}-${quarter - 1}`) : null;
-    // 2분기 이후인데 직전 누적이 없으면 차감할 수 없어 건너뛴다.
-    if (quarter > 1 && !previous) continue;
+    const slot = byYear.get(year);
+    const current = slot?.get(quarter);
+    if (!slot || !current) continue;
 
-    const derived = {} as FinancialMetrics;
-    for (const key of METRIC_KEYS) {
-      const value = current[key];
-      if (!MATCHERS[key].flow) {
-        derived[key] = value;
-        continue;
-      }
-      if (value === null) {
-        derived[key] = null;
-      } else if (quarter === 1) {
-        derived[key] = value;
-      } else {
-        const before = previous![key];
-        derived[key] = before === null ? null : value - before;
-      }
-    }
+    const derived = quarterMetrics(slot, quarter, cumulativeYear.get(year) ?? true);
+    if (!derived) continue;
 
     periods.push({
       ...derived,

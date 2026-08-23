@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { InfoRow, Section, SegmentedTabs } from "@/components/ui";
+import { SegmentedTabs } from "@/components/ui";
 import {
   CORP_CLASS_LABEL,
   getCompanyProfile,
@@ -9,14 +9,11 @@ import {
 } from "@/lib/company";
 import { DartError } from "@/lib/dart";
 import type { Granularity } from "@/lib/finance";
-import { formatDartDate } from "@/lib/format";
 import {
-  AffiliatesSection,
-  DisclosureSection,
+  ConsolidationSection,
   FinancialsSection,
   FinancialsSkeleton,
   ListSkeleton,
-  OwnershipSection,
 } from "./sections";
 
 export const revalidate = 3600;
@@ -32,7 +29,7 @@ export async function generateMetadata({ params }: PageProps) {
     const profile = await getCompanyProfile(corpCode);
     return {
       title: `${profile.corp_name} 기업분석 — Anta Research`,
-      description: `${profile.corp_name}의 매출, 영업이익, 재무비율과 최근 공시를 DART 데이터로 확인하세요.`,
+      description: `${profile.corp_name}의 매출, 영업이익, 수익성·안정성 지표를 DART 데이터로 확인하세요.`,
     };
   } catch {
     return { title: "기업분석 — Anta Research" };
@@ -79,20 +76,8 @@ export default async function CompanyPage({ params, searchParams }: PageProps) {
         <FinancialsSection corpCode={corpCode} granularity={granularity} />
       </Suspense>
 
-      <Suspense fallback={<ListSkeleton title="출자 법인" rows={4} />}>
-        <AffiliatesSection corpCode={corpCode} />
-      </Suspense>
-
-      <Suspense fallback={<ListSkeleton title="기업 개요" rows={4} />}>
-        <ProfileSection profilePromise={profilePromise} />
-      </Suspense>
-
-      <Suspense fallback={<ListSkeleton title="최대주주 현황" />}>
-        <OwnershipSection corpCode={corpCode} />
-      </Suspense>
-
-      <Suspense fallback={<ListSkeleton title="최근 공시" rows={5} />}>
-        <DisclosureSection corpCode={corpCode} />
+      <Suspense fallback={<ListSkeleton title="연결 vs 별도" rows={4} />}>
+        <ConsolidationSection corpCode={corpCode} />
       </Suspense>
     </div>
   );
@@ -171,28 +156,5 @@ async function CompanyHeader({
         )}
       </div>
     </header>
-  );
-}
-
-async function ProfileSection({
-  profilePromise,
-}: {
-  profilePromise: Promise<CompanyProfile>;
-}) {
-  const profile = await resolveProfile(profilePromise);
-  return (
-    <Section title="기업 개요">
-      <div className="card">
-        <InfoRow label="대표자">{profile.ceo_nm || "—"}</InfoRow>
-        <InfoRow label="설립일">{formatDartDate(profile.est_dt)}</InfoRow>
-        <InfoRow label="업종코드">{profile.induty_code || "—"}</InfoRow>
-        <InfoRow label="결산월">
-          {profile.acc_mt ? `${Number(profile.acc_mt)}월` : "—"}
-        </InfoRow>
-        <InfoRow label="사업자등록번호">{profile.bizr_no || "—"}</InfoRow>
-        <InfoRow label="주소">{profile.adres || "—"}</InfoRow>
-        <InfoRow label="전화">{profile.phn_no || "—"}</InfoRow>
-      </div>
-    </Section>
   );
 }

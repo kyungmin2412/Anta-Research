@@ -1,28 +1,12 @@
-import Link from "next/link";
 import { PerformanceChart, RatioChart } from "@/components/FinancialCharts";
 import { DeltaBadge, EmptyState, Section, StatTile } from "@/components/ui";
-import {
-  getAffiliates,
-  getDisclosures,
-  getEmployees,
-  getMajorShareholders,
-  latestReport,
-  parseCount,
-} from "@/lib/company";
-import { dartViewerUrl } from "@/lib/dart";
 import {
   computeRatios,
   getFinancialSeries,
   getSeparateSnapshot,
   type Granularity,
 } from "@/lib/finance";
-import {
-  formatDartDate,
-  formatKrw,
-  formatNumber,
-  formatPercent,
-  formatSignedPercent,
-} from "@/lib/format";
+import { formatKrw, formatPercent, formatSignedPercent } from "@/lib/format";
 
 function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-lg bg-grey-100 ${className}`} />;
@@ -343,17 +327,9 @@ export async function FinancialsSection({
   );
 }
 
-export async function AffiliatesSection({ corpCode }: { corpCode: string }) {
-  const [affiliates, separate] = await Promise.all([
-    latestReport((year) => getAffiliates(corpCode, year)),
-    getSeparateSnapshot(corpCode).catch(() => null),
-  ]);
-
-  if (affiliates.rows.length === 0 && !separate) return null;
-
-  const subsidiaries = affiliates.rows.filter(
-    (row) => (row.ownershipRate ?? 0) > 50,
-  ).length;
+export async function ConsolidationSection({ corpCode }: { corpCode: string }) {
+  const separate = await getSeparateSnapshot(corpCode).catch(() => null);
+  if (!separate?.consolidated || !separate.separate) return null;
 
   return (
     <>
@@ -425,226 +401,6 @@ export async function AffiliatesSection({ corpCode }: { corpCode: string }) {
           </p>
         </Section>
       )}
-
-      {affiliates.rows.length > 0 && (
-        <Section
-          title="출자 법인"
-          description={`${affiliates.year} 사업보고서 기준 · ${affiliates.rows.length}곳${
-            subsidiaries > 0 ? ` (지분 50% 초과 ${subsidiaries}곳)` : ""
-          }`}
-        >
-          <div className="card thin-scroll overflow-x-auto">
-            <table className="w-full border-collapse" style={{ minWidth: 680 }}>
-              <thead>
-                <tr className="border-b border-grey-100">
-                  <th className="px-5 py-3.5 text-left text-[13px] font-semibold text-grey-500">
-                    법인명
-                  </th>
-                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
-                    지분율
-                  </th>
-                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
-                    장부가액
-                  </th>
-                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
-                    총자산
-                  </th>
-                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
-                    당기순손익
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {affiliates.rows.map((row, index) => (
-                  <tr
-                    key={`${row.name}-${index}`}
-                    className="border-b border-grey-100 last:border-b-0"
-                  >
-                    <td className="px-5 py-3.5 text-[14px] font-medium text-grey-800">
-                      <span className="flex items-center gap-2">
-                        {row.corpCode ? (
-                          <Link
-                            href={`/company/${row.corpCode}`}
-                            className="text-blue-600 hover:text-blue-700 hover:underline"
-                          >
-                            {row.name}
-                          </Link>
-                        ) : (
-                          row.name
-                        )}
-                        {(row.ownershipRate ?? 0) > 50 && (
-                          <span className="shrink-0 rounded-md bg-blue-100 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700">
-                            종속
-                          </span>
-                        )}
-                      </span>
-                    </td>
-                    <td className="tnum px-5 py-3.5 text-right text-[14px] font-semibold whitespace-nowrap text-grey-900">
-                      {row.ownershipRate !== null
-                        ? `${row.ownershipRate.toFixed(2)}%`
-                        : "—"}
-                    </td>
-                    <td className="tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap text-grey-700">
-                      {formatKrw(row.bookValue)}
-                    </td>
-                    <td className="tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap text-grey-700">
-                      {formatKrw(row.totalAssets)}
-                    </td>
-                    <td
-                      className={`tnum px-5 py-3.5 text-right text-[14px] whitespace-nowrap ${
-                        (row.netIncome ?? 0) < 0 ? "text-blue-600" : "text-grey-700"
-                      }`}
-                    >
-                      {formatKrw(row.netIncome)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-2.5 px-1 text-[12px] leading-relaxed break-keep text-grey-500">
-            DART 타법인 출자현황 공시입니다. 파란 이름을 누르면 그 법인의 분석 화면으로
-            넘어갑니다.
-          </p>
-        </Section>
-      )}
     </>
-  );
-}
-
-export async function OwnershipSection({ corpCode }: { corpCode: string }) {
-  const [shareholders, employees] = await Promise.all([
-    latestReport((year) => getMajorShareholders(corpCode, year)),
-    latestReport((year) => getEmployees(corpCode, year)),
-  ]);
-
-  const totalEmployees = employees.rows.reduce(
-    (sum, row) => sum + (parseCount(row.sm) ?? 0),
-    0,
-  );
-  const salaries = employees.rows
-    .map((row) => parseCount(row.jan_salary_am))
-    .filter((value): value is number => value !== null);
-  const meanSalary =
-    salaries.length > 0
-      ? salaries.reduce((sum, value) => sum + value, 0) / salaries.length
-      : null;
-
-  return (
-    <>
-      {shareholders.rows.length > 0 && (
-        <Section
-          title="최대주주 현황"
-          description={`${shareholders.year} 사업보고서 기준`}
-        >
-          <div className="card thin-scroll overflow-x-auto">
-            <table className="w-full border-collapse" style={{ minWidth: 560 }}>
-              <thead>
-                <tr className="border-b border-grey-100">
-                  <th className="px-5 py-3.5 text-left text-[13px] font-semibold text-grey-500">
-                    성명
-                  </th>
-                  <th className="px-5 py-3.5 text-left text-[13px] font-semibold text-grey-500">
-                    관계
-                  </th>
-                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
-                    보유주식수
-                  </th>
-                  <th className="px-5 py-3.5 text-right text-[13px] font-semibold text-grey-500">
-                    지분율
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {shareholders.rows.slice(0, 10).map((row, index) => (
-                  <tr
-                    key={`${row.nm}-${index}`}
-                    className="border-b border-grey-100 last:border-b-0"
-                  >
-                    <td className="px-5 py-3.5 text-[14px] font-medium text-grey-800">
-                      {row.nm}
-                    </td>
-                    <td className="px-5 py-3.5 text-[14px] text-grey-600">
-                      {row.relate || "—"}
-                    </td>
-                    <td className="tnum px-5 py-3.5 text-right text-[14px] text-grey-700">
-                      {formatNumber(parseCount(row.trmend_posesn_stock_co))}
-                    </td>
-                    <td className="tnum px-5 py-3.5 text-right text-[14px] font-semibold text-grey-900">
-                      {row.trmend_posesn_stock_qota_rt
-                        ? `${row.trmend_posesn_stock_qota_rt}%`
-                        : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Section>
-      )}
-
-      {totalEmployees > 0 && (
-        <Section title="직원 현황" description={`${employees.year} 사업보고서 기준`}>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <StatTile label="전체 직원 수" value={`${formatNumber(totalEmployees)}명`} />
-            <StatTile
-              label="1인 평균 급여액"
-              value={meanSalary ? formatKrw(meanSalary) : "—"}
-              sub="공시된 부문 평균"
-            />
-          </div>
-        </Section>
-      )}
-    </>
-  );
-}
-
-export async function DisclosureSection({ corpCode }: { corpCode: string }) {
-  const disclosures = await getDisclosures(corpCode).catch(() => []);
-
-  return (
-    <Section
-      title="최근 공시"
-      description="최근 1년간 제출된 공시입니다."
-      action={
-        <a
-          href="https://dart.fss.or.kr/dsab007/main.do"
-          target="_blank"
-          rel="noreferrer"
-          className="text-[13px] font-semibold text-blue-600 hover:text-blue-700"
-        >
-          DART에서 보기
-        </a>
-      }
-    >
-      {disclosures.length === 0 ? (
-        <EmptyState message="최근 1년간 제출된 공시가 없어요." />
-      ) : (
-        <ul className="card divide-y divide-grey-100">
-          {disclosures.map((item) => (
-            <li key={item.rcept_no}>
-              <a
-                href={dartViewerUrl(item.rcept_no)}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-grey-50"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate text-[15px] font-medium text-grey-900">
-                    {item.report_nm.trim()}
-                  </span>
-                  <span className="mt-0.5 block text-[13px] text-grey-500">
-                    {item.flr_nm}
-                  </span>
-                </span>
-                <span className="tnum shrink-0 text-[13px] text-grey-500">
-                  {formatDartDate(item.rcept_dt)}
-                </span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Section>
   );
 }

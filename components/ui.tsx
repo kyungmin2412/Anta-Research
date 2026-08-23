@@ -98,17 +98,6 @@ export function DeltaBadge({ value }: { value: number | null }) {
   );
 }
 
-export function InfoRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-6 border-b border-grey-100 px-5 py-3.5 last:border-b-0">
-      <span className="shrink-0 text-[14px] text-grey-500">{label}</span>
-      <span className="text-right text-[14px] font-medium break-all text-grey-800">
-        {children}
-      </span>
-    </div>
-  );
-}
-
 export function EmptyState({ message }: { message: string }) {
   return (
     <div className="card px-5 py-10 text-center text-[14px] text-grey-500">{message}</div>

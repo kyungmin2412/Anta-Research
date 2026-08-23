@@ -108,14 +108,3 @@ export const REPORT_CODE = {
 } as const;
 
 export type ReportCode = (typeof REPORT_CODE)[keyof typeof REPORT_CODE];
-
-export const REPORT_LABEL: Record<string, string> = {
-  "11013": "1분기보고서",
-  "11012": "반기보고서",
-  "11014": "3분기보고서",
-  "11011": "사업보고서",
-};
-
-export function dartViewerUrl(rceptNo: string): string {
-  return `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rceptNo}`;
-}

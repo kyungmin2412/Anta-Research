@@ -47,21 +47,3 @@ export function formatSignedPercent(value: number | null | undefined, digits = 1
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(digits)}%`;
 }
-
-export function formatNumber(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return value.toLocaleString("ko-KR");
-}
-
-/** "20240315" → "2024.03.15" */
-export function formatDartDate(value: string | null | undefined): string {
-  if (!value || value.length < 8) return value ?? "—";
-  return `${value.slice(0, 4)}.${value.slice(4, 6)}.${value.slice(6, 8)}`;
-}
-
-export function yyyymmdd(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
-}

@@ -1,4 +1,5 @@
-import { PerformanceChart, RatioChart } from "@/components/FinancialCharts";
+import { MetricChart } from "@/components/FinancialCharts";
+import MetricPicker from "@/components/MetricPicker";
 import { DeltaBadge, EmptyState, Section, StatTile } from "@/components/ui";
 import {
   computeRatios,
@@ -7,6 +8,7 @@ import {
   type Granularity,
 } from "@/lib/finance";
 import { formatKrw, formatPercent, formatSignedPercent } from "@/lib/format";
+import { getMetric, type MetricKey } from "@/lib/metrics";
 
 function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-lg bg-grey-100 ${className}`} />;
@@ -51,9 +53,13 @@ export function ListSkeleton({ title, rows = 3 }: { title: string; rows?: number
 export async function FinancialsSection({
   corpCode,
   granularity,
+  metrics,
+  metricHref,
 }: {
   corpCode: string;
   granularity: Granularity;
+  metrics: MetricKey[];
+  metricHref: (keys: MetricKey[]) => string;
 }) {
   const series = await getFinancialSeries(corpCode, granularity);
   const latest = series.periods.at(-1);
@@ -142,43 +148,58 @@ export async function FinancialsSection({
       </div>
 
       <Section
-        title="실적 흐름"
+        title="지표 차트"
         description={`최근 ${series.periods.length}개 ${periodUnit} · ${
           series.fsDiv === "CFS" ? "연결재무제표" : "별도재무제표"
-        } · 단위 원`}
+        }`}
       >
-        <div className="card p-5 pt-6">
-          <PerformanceChart
-            data={performanceData}
-            netLabel={isQuarter ? "분기순이익" : "당기순이익"}
-          />
-        </div>
+        <MetricPicker selected={metrics} hrefFor={metricHref} />
+
+        {metrics.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState message="위에서 보고 싶은 지표를 골라 주세요." />
+          </div>
+        ) : (
+          <div className="mt-3 grid gap-3 xl:grid-cols-2">
+            {metrics.map((key) => {
+              const metric = getMetric(key);
+              const data = series.periods.map((period) => ({
+                label: period.label,
+                value: metric.value(period),
+              }));
+              const last = data.at(-1)?.value ?? null;
+              return (
+                <div key={key} className="card p-5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[15px] font-bold text-grey-900">
+                        {metric.label}
+                      </p>
+                      {metric.hint && (
+                        <p className="mt-0.5 truncate text-[12px] text-grey-500">
+                          {metric.hint}
+                        </p>
+                      )}
+                    </div>
+                    <p className="tnum shrink-0 text-[18px] font-bold text-grey-900">
+                      {metric.unit === "krw" ? formatKrw(last) : formatPercent(last)}
+                    </p>
+                  </div>
+                  <div className="mt-3">
+                    <MetricChart data={data} name={metric.label} unit={metric.unit} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {isQuarter && (
           <p className="mt-2.5 px-1 text-[12px] leading-relaxed break-keep text-grey-500">
             분기 손익과 현금흐름은 공시된 누적 금액에서 직전 분기 누적을 뺀 값입니다.
             회사가 수정 공시를 하면 원문과 차이가 날 수 있습니다.
           </p>
         )}
-      </Section>
-
-      <Section title="수익성" description="매출에서 얼마를 남기는지 보여줍니다.">
-        <div className="card p-5 pt-6">
-          <RatioChart data={ratioData} />
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile label="영업이익률" value={formatPercent(ratios.operatingMargin)} />
-          <StatTile label="순이익률" value={formatPercent(ratios.netMargin)} />
-          <StatTile
-            label="ROE"
-            value={formatPercent(ratios.roe)}
-            sub={isQuarter ? "분기 순이익 기준" : "자기자본이익률"}
-          />
-          <StatTile
-            label="ROA"
-            value={formatPercent(ratios.roa)}
-            sub={isQuarter ? "분기 순이익 기준" : "총자산이익률"}
-          />
-        </div>
       </Section>
 
       <Section title="재무 안정성" description="빚을 감당할 수 있는 체력을 봅니다.">

@@ -30,9 +30,12 @@ export type FinancialMetrics = {
   liabilities: number | null;
   currentLiabilities: number | null;
   equity: number | null;
+  cashAndEquivalents: number | null;
   operatingCashFlow: number | null;
   investingCashFlow: number | null;
   financingCashFlow: number | null;
+  /** 유형자산 취득액(자본적지출). 공시에는 유출이라 음수로 실리므로 양수로 뒤집어 담는다. */
+  capex: number | null;
 };
 
 export type FinancialPeriod = FinancialMetrics & {
@@ -129,6 +132,16 @@ const MATCHERS: Record<keyof FinancialMetrics, Matcher> = {
     ids: ["ifrs-full_Equity", "ifrs_Equity"],
     names: /^자본총계/,
   },
+  cashAndEquivalents: {
+    sj: ["BS"],
+    flow: false,
+    ids: [
+      "ifrs-full_CashAndCashEquivalents",
+      "ifrs_CashAndCashEquivalents",
+      "dart_CashAndCashEquivalentsAtEndOfPeriod",
+    ],
+    names: /^현금및현금성자산/,
+  },
   operatingCashFlow: {
     sj: ["CF"],
     flow: true,
@@ -146,6 +159,17 @@ const MATCHERS: Record<keyof FinancialMetrics, Matcher> = {
     flow: true,
     ids: ["ifrs-full_CashFlowsFromUsedInFinancingActivities"],
     names: /재무활동.*현금흐름/,
+  },
+  capex: {
+    sj: ["CF"],
+    flow: true,
+    ids: [
+      "ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+      "dart_PurchaseOfPropertyPlantAndEquipment",
+      "ifrs-full_PurchaseOfPropertyPlantAndEquipment",
+    ],
+    // 회사마다 "유형자산의 취득", "유형자산의취득", "유형자산의 증가"로 갈린다.
+    names: /^유형자산의?(취득|증가|매입)/,
   },
 };
 
@@ -185,7 +209,15 @@ function pick(rows: RawAccount[], matcher: Matcher, cumulative: boolean): number
 function buildMetrics(rows: RawAccount[], cumulative: boolean): FinancialMetrics {
   const result = {} as FinancialMetrics;
   for (const key of METRIC_KEYS) result[key] = pick(rows, MATCHERS[key], cumulative);
+  // 설비투자는 현금 유출이라 음수로 실린다. 크기로 견주는 지표라 양수로 뒤집는다.
+  if (result.capex !== null) result.capex = Math.abs(result.capex);
   return result;
+}
+
+/** 잉여현금흐름 = 영업활동현금흐름 − 설비투자. */
+export function freeCashFlow(metrics: FinancialMetrics): number | null {
+  if (metrics.operatingCashFlow === null) return null;
+  return metrics.operatingCashFlow - (metrics.capex ?? 0);
 }
 
 const QUARTER_REPORT: Record<number, ReportCode> = {

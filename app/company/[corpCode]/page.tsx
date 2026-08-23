@@ -9,6 +9,7 @@ import {
 } from "@/lib/company";
 import { DartError } from "@/lib/dart";
 import type { Granularity } from "@/lib/finance";
+import { metricsParam, parseMetrics, type MetricKey } from "@/lib/metrics";
 import {
   ConsolidationSection,
   FinancialsSection,
@@ -20,7 +21,7 @@ export const revalidate = 3600;
 
 type PageProps = {
   params: Promise<{ corpCode: string }>;
-  searchParams: Promise<{ p?: string }>;
+  searchParams: Promise<{ p?: string; m?: string }>;
 };
 
 export async function generateMetadata({ params }: PageProps) {
@@ -46,8 +47,17 @@ export default async function CompanyPage({ params, searchParams }: PageProps) {
   // 렌더 중 예외가 떠도 처리되지 않은 거부로 남지 않게 한다.
   profilePromise.catch(() => {});
 
-  const granularity: Granularity =
-    (await searchParams).p === "q" ? "quarter" : "annual";
+  const query = await searchParams;
+  const granularity: Granularity = query.p === "q" ? "quarter" : "annual";
+  const metrics = parseMetrics(query.m);
+
+  // 기간 탭과 지표 선택이 서로를 지우지 않도록 링크를 함께 만든다.
+  const hrefFor = (next: { granularity?: Granularity; metrics?: MetricKey[] }) => {
+    const params = new URLSearchParams();
+    if ((next.granularity ?? granularity) === "quarter") params.set("p", "q");
+    params.set("m", metricsParam(next.metrics ?? metrics));
+    return `/company/${corpCode}?${params}`;
+  };
 
   return (
     <div className="animate-fade-up pt-8">
@@ -66,14 +76,27 @@ export default async function CompanyPage({ params, searchParams }: PageProps) {
         <SegmentedTabs
           active={granularity}
           options={[
-            { value: "annual", label: "연간 5개년", href: `/company/${corpCode}` },
-            { value: "quarter", label: "분기 8개", href: `/company/${corpCode}?p=q` },
+            {
+              value: "annual",
+              label: "연간 5개년",
+              href: hrefFor({ granularity: "annual" }),
+            },
+            {
+              value: "quarter",
+              label: "분기 8개",
+              href: hrefFor({ granularity: "quarter" }),
+            },
           ]}
         />
       </div>
 
       <Suspense key={granularity} fallback={<FinancialsSkeleton />}>
-        <FinancialsSection corpCode={corpCode} granularity={granularity} />
+        <FinancialsSection
+          corpCode={corpCode}
+          granularity={granularity}
+          metrics={metrics}
+          metricHref={(next) => hrefFor({ metrics: next })}
+        />
       </Suspense>
 
       <Suspense fallback={<ListSkeleton title="연결 vs 별도" rows={4} />}>

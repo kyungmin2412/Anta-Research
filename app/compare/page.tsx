@@ -6,8 +6,10 @@ import { EmptyState, Section, SegmentedTabs } from "@/components/ui";
 import { getCompanyProfile } from "@/lib/company";
 import { compareColor, MAX_COMPARE } from "@/lib/compare";
 import {
+  ANNUAL_COUNT,
   computeRatios,
   getFinancialSeries,
+  QUARTER_COUNT,
   type FinancialSeries,
   type Granularity,
 } from "@/lib/finance";
@@ -92,8 +94,16 @@ export default async function ComparePage({ searchParams }: PageProps) {
         <SegmentedTabs
           active={granularity}
           options={[
-            { value: "annual", label: "연간 5개년", href: compareHref(codes, "annual") },
-            { value: "quarter", label: "분기 8개", href: compareHref(codes, "quarter") },
+            {
+              value: "annual",
+              label: `연간 ${ANNUAL_COUNT}개년`,
+              href: compareHref(codes, "annual"),
+            },
+            {
+              value: "quarter",
+              label: `분기 ${QUARTER_COUNT}개`,
+              href: compareHref(codes, "quarter"),
+            },
           ]}
         />
       </div>
@@ -187,7 +197,7 @@ async function CompareBody({
   // 회사마다 결산 시점이 달라 기간 라벨을 합집합으로 모아 축을 맞춘다.
   const labels = [...new Set(entries.flatMap((e) => e.series.periods.map((p) => p.label)))]
     .sort()
-    .slice(-(granularity === "quarter" ? 8 : 5));
+    .slice(-(granularity === "quarter" ? QUARTER_COUNT : ANNUAL_COUNT));
 
   const lineSeries = entries.map((entry) => ({
     key: entry.corpCode,

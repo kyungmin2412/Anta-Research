@@ -8,7 +8,7 @@ import {
   type CompanyProfile,
 } from "@/lib/company";
 import { DartError } from "@/lib/dart";
-import type { Granularity } from "@/lib/finance";
+import { ANNUAL_COUNT, QUARTER_COUNT, type Granularity } from "@/lib/finance";
 import { metricsParam, parseMetrics, type MetricKey } from "@/lib/metrics";
 import {
   ConsolidationSection,
@@ -78,12 +78,12 @@ export default async function CompanyPage({ params, searchParams }: PageProps) {
           options={[
             {
               value: "annual",
-              label: "연간 5개년",
+              label: `연간 ${ANNUAL_COUNT}개년`,
               href: hrefFor({ granularity: "annual" }),
             },
             {
               value: "quarter",
-              label: "분기 8개",
+              label: `분기 ${QUARTER_COUNT}개`,
               href: hrefFor({ granularity: "quarter" }),
             },
           ]}

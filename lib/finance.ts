@@ -220,13 +220,17 @@ export function freeCashFlow(metrics: FinancialMetrics): number | null {
   return metrics.operatingCashFlow - (metrics.capex ?? 0);
 }
 
+/** 분기 보기에서 보여줄 분기 수. 약 5년치다. */
+export const QUARTER_COUNT = 20;
+/** 연간 보기에서 보여줄 사업연도 수. */
+export const ANNUAL_COUNT = 5;
+
 const QUARTER_REPORT: Record<number, ReportCode> = {
   1: REPORT_CODE.Q1,
   2: REPORT_CODE.HALF,
   3: REPORT_CODE.Q3,
   4: REPORT_CODE.ANNUAL,
 };
-
 
 async function fetchOne(
   corpCode: string,
@@ -250,6 +254,32 @@ async function fetchOne(
 type PeriodRequest = { year: number; reportCode: ReportCode };
 
 /**
+ * 한 번에 던지는 요청 수 상한.
+ *
+ * 20분기를 보면 보고서를 스물두 건 읽어야 한다. 전부 한꺼번에 던지면 DART가
+ * 조일 수 있고, 그때 실패한 기간은 차트에서 조용히 빠져 원인을 찾기 어렵다.
+ * 연간(5건)과 8분기(10건)는 이 상한에 걸리지 않아 그대로 한 번에 나간다.
+ */
+const MAX_CONCURRENT = 12;
+
+async function mapWithLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/**
  * 여러 기간의 보고서를 한꺼번에 가져온다.
  *
  * 연결을 전 기간에 먼저 던지고, 하나도 없을 때만 별도로 다시 던진다. 기간마다
@@ -263,11 +293,9 @@ async function fetchPeriods(
   cumulative: boolean,
 ): Promise<{ metrics: Array<FinancialMetrics | null>; fsDiv: "CFS" | "OFS" | null }> {
   for (const fsDiv of ["CFS", "OFS"] as const) {
-    const metrics = await Promise.all(
-      targets.map((target) =>
-        fetchOne(corpCode, target.year, target.reportCode, fsDiv, cumulative).catch(
-          () => null,
-        ),
+    const metrics = await mapWithLimit(targets, MAX_CONCURRENT, (target) =>
+      fetchOne(corpCode, target.year, target.reportCode, fsDiv, cumulative).catch(
+        () => null,
       ),
     );
     if (metrics.some((item) => item !== null)) return { metrics, fsDiv };
@@ -300,7 +328,7 @@ export function latestQuarter(now = new Date()): { year: number; quarter: number
 /** 최근 사업연도부터 count개 연도의 연간 재무 데이터를 모은다. */
 export async function getAnnualSeries(
   corpCode: string,
-  count = 5,
+  count = ANNUAL_COUNT,
 ): Promise<FinancialSeries> {
   const latest = latestBusinessYear();
   const targets = Array.from({ length: count }, (_, i) => latest - i);
@@ -331,7 +359,7 @@ export async function getAnnualSeries(
  */
 export async function getQuarterlySeries(
   corpCode: string,
-  count = 8,
+  count = QUARTER_COUNT,
 ): Promise<FinancialSeries> {
   const latest = latestQuarter();
 

@@ -15,6 +15,11 @@ import { formatKrwShort, formatPercent } from "@/lib/format";
 const AXIS = { fontSize: 12, fill: "#8b95a1" } as const;
 const GRID = "#f2f4f6";
 
+/** 기간이 많으면 축 라벨이 겹친다. 대여섯 개만 남기고 건너뛴다. */
+function tickInterval(count: number): number {
+  return count > 10 ? Math.ceil(count / 6) - 1 : 0;
+}
+
 function ChartLegend({ items }: { items: Array<[string, string]> }) {
   return (
     <ul className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1.5">
@@ -73,7 +78,13 @@ export function MetricChart({
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -8 }}>
           <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} />
+          <XAxis
+            dataKey="label"
+            tick={AXIS}
+            tickLine={false}
+            axisLine={false}
+            interval={tickInterval(data.length)}
+          />
           <YAxis
             tick={AXIS}
             tickLine={false}
@@ -146,7 +157,13 @@ export function MultiLineChart({
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -8 }}>
             <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} />
+            <XAxis
+              dataKey="label"
+              tick={AXIS}
+              tickLine={false}
+              axisLine={false}
+              interval={tickInterval(data.length)}
+            />
             <YAxis
               tick={AXIS}
               tickLine={false}

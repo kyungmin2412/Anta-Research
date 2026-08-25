@@ -1,4 +1,4 @@
-import { MetricChart } from "@/components/FinancialCharts";
+import { MetricChart, type MetricPoint } from "@/components/FinancialCharts";
 import MetricPicker from "@/components/MetricPicker";
 import { DeltaBadge, EmptyState, Section, StatTile } from "@/components/ui";
 import {
@@ -8,6 +8,17 @@ import {
   type Granularity,
 } from "@/lib/finance";
 import { formatKrw, formatPercent, formatSignedPercent } from "@/lib/format";
+import {
+  formatGrowth,
+  GROWTH_COLOR,
+  growthKinds,
+  growthNumber,
+  growthShortLabel,
+  growthTone,
+  metricGrowth,
+  previousPeriod,
+  type GrowthMode,
+} from "@/lib/growth";
 import { getMetric, type MetricKey } from "@/lib/metrics";
 
 function Skeleton({ className = "" }: { className?: string }) {
@@ -55,11 +66,15 @@ export async function FinancialsSection({
   granularity,
   metrics,
   metricHref,
+  growthMode,
+  growthHref,
 }: {
   corpCode: string;
   granularity: Granularity;
   metrics: MetricKey[];
   metricHref: (keys: MetricKey[]) => string;
+  growthMode: GrowthMode;
+  growthHref: (mode: GrowthMode) => string;
 }) {
   const series = await getFinancialSeries(corpCode, granularity);
   const latest = series.periods.at(-1);
@@ -81,6 +96,7 @@ export async function FinancialsSection({
 
   const ratios = computeRatios(latest, series.periods.at(-2));
   const periodUnit = isQuarter ? "분기" : "연도";
+  const kinds = growthKinds(growthMode, granularity);
   const growthLabel = isQuarter ? "직전 분기 대비" : "전년 대비";
 
   const performanceData = series.periods.map((period) => ({
@@ -153,7 +169,13 @@ export async function FinancialsSection({
           series.fsDiv === "CFS" ? "연결재무제표" : "별도재무제표"
         }`}
       >
-        <MetricPicker selected={metrics} hrefFor={metricHref} />
+        <MetricPicker
+          selected={metrics}
+          hrefFor={metricHref}
+          growthMode={growthMode}
+          growthHref={growthHref}
+          granularity={granularity}
+        />
 
         {metrics.length === 0 ? (
           <div className="mt-3">
@@ -163,11 +185,26 @@ export async function FinancialsSection({
           <div className="mt-3 grid gap-3 xl:grid-cols-2">
             {metrics.map((key) => {
               const metric = getMetric(key);
-              const data = series.periods.map((period) => ({
-                label: period.label,
-                value: metric.value(period),
-              }));
+              const data: MetricPoint[] = series.periods.map((period) => {
+                const point: MetricPoint = {
+                  label: period.label,
+                  value: metric.value(period),
+                };
+                for (const kind of kinds) {
+                  const before = previousPeriod(series.periods, period, kind);
+                  point[kind] = growthNumber(metricGrowth(metric, period, before));
+                }
+                return point;
+              });
               const last = data.at(-1)?.value ?? null;
+              const latestGrowth = kinds.map((kind) => ({
+                kind,
+                growth: metricGrowth(
+                  metric,
+                  latest,
+                  previousPeriod(series.periods, latest, kind),
+                ),
+              }));
               return (
                 <div key={key} className="card p-5">
                   <div className="flex items-baseline justify-between gap-3">
@@ -181,12 +218,49 @@ export async function FinancialsSection({
                         </p>
                       )}
                     </div>
-                    <p className="tnum shrink-0 text-[18px] font-bold text-grey-900">
-                      {metric.unit === "krw" ? formatKrw(last) : formatPercent(last)}
-                    </p>
+                    <div className="shrink-0 text-right">
+                      <p className="tnum text-[18px] font-bold text-grey-900">
+                        {metric.unit === "krw" ? formatKrw(last) : formatPercent(last)}
+                      </p>
+                      {latestGrowth.length > 0 && (
+                        <p className="mt-1 flex justify-end gap-2">
+                          {latestGrowth.map(({ kind, growth }) => {
+                            const tone = growthTone(growth, metric.lowerIsBetter ?? false);
+                            return (
+                              <span key={kind} className="text-[12px] font-medium">
+                                <span className="text-grey-400">
+                                  {growthShortLabel(kind, granularity)}
+                                </span>{" "}
+                                <span
+                                  className={
+                                    tone === "up"
+                                      ? "text-red-500"
+                                      : tone === "down"
+                                        ? "text-blue-600"
+                                        : "text-grey-500"
+                                  }
+                                >
+                                  {formatGrowth(growth)}
+                                </span>
+                              </span>
+                            );
+                          })}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <div className="mt-3">
-                    <MetricChart data={data} name={metric.label} unit={metric.unit} />
+                    <MetricChart
+                      data={data}
+                      name={metric.label}
+                      unit={metric.unit}
+                      growthUnit={metric.unit === "percent" ? "%p" : "%"}
+                      growth={kinds.map((kind) => ({
+                        key: kind,
+                        name: growthShortLabel(kind, granularity),
+                        color: GROWTH_COLOR[kind],
+                      }))}
+                    />
                   </div>
                 </div>
               );

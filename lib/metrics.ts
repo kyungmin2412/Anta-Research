@@ -23,6 +23,7 @@ export type MetricKey =
   | "equity"
   | "debtRatio"
   | "currentRatio"
+  | "inventories"
   | "cashAndEquivalents"
   | "operatingCashFlow"
   | "capex"
@@ -35,6 +36,8 @@ export type MetricDef = {
   unit: "krw" | "percent";
   group: "실적" | "수익성" | "재무상태" | "현금흐름";
   hint?: string;
+  /** 부채비율처럼 낮을수록 좋은 지표. 증감을 좋고 나쁨으로 읽을 때 쓴다. */
+  lowerIsBetter?: boolean;
   value: (period: FinancialPeriod) => number | null;
 };
 
@@ -120,6 +123,7 @@ export const METRICS: MetricDef[] = [
     unit: "percent",
     group: "재무상태",
     hint: "부채총계 ÷ 자본총계",
+    lowerIsBetter: true,
     value: (p) => computeRatios(p).debtRatio,
   },
   {
@@ -129,6 +133,13 @@ export const METRICS: MetricDef[] = [
     group: "재무상태",
     hint: "유동자산 ÷ 유동부채",
     value: (p) => computeRatios(p).currentRatio,
+  },
+  {
+    key: "inventories",
+    label: "재고자산",
+    unit: "krw",
+    group: "재무상태",
+    value: (p) => p.inventories,
   },
   {
     key: "cashAndEquivalents",
@@ -150,6 +161,7 @@ export const METRICS: MetricDef[] = [
     unit: "krw",
     group: "현금흐름",
     hint: "현금흐름표의 유형자산 취득액",
+    lowerIsBetter: true,
     value: (p) => p.capex,
   },
   {

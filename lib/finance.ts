@@ -31,6 +31,7 @@ export type FinancialMetrics = {
   currentLiabilities: number | null;
   equity: number | null;
   cashAndEquivalents: number | null;
+  inventories: number | null;
   operatingCashFlow: number | null;
   investingCashFlow: number | null;
   financingCashFlow: number | null;
@@ -131,6 +132,12 @@ const MATCHERS: Record<keyof FinancialMetrics, Matcher> = {
     flow: false,
     ids: ["ifrs-full_Equity", "ifrs_Equity"],
     names: /^자본총계/,
+  },
+  inventories: {
+    sj: ["BS"],
+    flow: false,
+    ids: ["ifrs-full_Inventories", "ifrs_Inventories"],
+    names: /^재고자산/,
   },
   cashAndEquivalents: {
     sj: ["BS"],

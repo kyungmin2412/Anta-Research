@@ -9,6 +9,7 @@ import {
 } from "@/lib/company";
 import { DartError } from "@/lib/dart";
 import { ANNUAL_COUNT, QUARTER_COUNT, type Granularity } from "@/lib/finance";
+import { parseGrowthMode, type GrowthMode } from "@/lib/growth";
 import { metricsParam, parseMetrics, type MetricKey } from "@/lib/metrics";
 import {
   ConsolidationSection,
@@ -21,7 +22,7 @@ export const revalidate = 3600;
 
 type PageProps = {
   params: Promise<{ corpCode: string }>;
-  searchParams: Promise<{ p?: string; m?: string }>;
+  searchParams: Promise<{ p?: string; m?: string; g?: string }>;
 };
 
 export async function generateMetadata({ params }: PageProps) {
@@ -50,12 +51,19 @@ export default async function CompanyPage({ params, searchParams }: PageProps) {
   const query = await searchParams;
   const granularity: Granularity = query.p === "q" ? "quarter" : "annual";
   const metrics = parseMetrics(query.m);
+  const growthMode = parseGrowthMode(query.g);
 
-  // 기간 탭과 지표 선택이 서로를 지우지 않도록 링크를 함께 만든다.
-  const hrefFor = (next: { granularity?: Granularity; metrics?: MetricKey[] }) => {
+  // 기간 탭, 지표 선택, 증감률이 서로를 지우지 않도록 링크를 함께 만든다.
+  const hrefFor = (next: {
+    granularity?: Granularity;
+    metrics?: MetricKey[];
+    growth?: GrowthMode;
+  }) => {
     const params = new URLSearchParams();
     if ((next.granularity ?? granularity) === "quarter") params.set("p", "q");
     params.set("m", metricsParam(next.metrics ?? metrics));
+    const mode = next.growth ?? growthMode;
+    if (mode !== "off") params.set("g", mode);
     return `/company/${corpCode}?${params}`;
   };
 
@@ -90,12 +98,14 @@ export default async function CompanyPage({ params, searchParams }: PageProps) {
         />
       </div>
 
-      <Suspense key={granularity} fallback={<FinancialsSkeleton />}>
+      <Suspense key={`${granularity}-${growthMode}`} fallback={<FinancialsSkeleton />}>
         <FinancialsSection
           corpCode={corpCode}
           granularity={granularity}
           metrics={metrics}
           metricHref={(next) => hrefFor({ metrics: next })}
+          growthMode={growthMode}
+          growthHref={(next) => hrefFor({ growth: next })}
         />
       </Suspense>
 

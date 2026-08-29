@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -23,15 +24,49 @@ function tickInterval(count: number): number {
   return count > 6 ? Math.ceil(count / 5) - 1 : 0;
 }
 
-function ChartLegend({ items }: { items: Array<[string, string]> }) {
+/**
+ * 범례. `onToggle` 을 주면 눌러서 그 계열을 껐다 켤 수 있다 — 선이 여러 개
+ * 겹치는 차트(가동률 등)에서 하나만 보고 싶을 때 쓴다.
+ */
+function ChartLegend({
+  items,
+  hidden,
+  onToggle,
+}: {
+  items: Array<{ key: string; label: string; color: string }>;
+  hidden?: Set<string>;
+  onToggle?: (key: string) => void;
+}) {
   return (
     <ul className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1.5">
-      {items.map(([label, color]) => (
-        <li key={label} className="flex items-center gap-1.5 text-[13px] text-grey-600">
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-          {label}
-        </li>
-      ))}
+      {items.map((item) => {
+        const isHidden = hidden?.has(item.key) ?? false;
+        return (
+          <li key={item.key}>
+            {onToggle ? (
+              <button
+                type="button"
+                onClick={() => onToggle(item.key)}
+                aria-pressed={!isHidden}
+                className={`flex items-center gap-1.5 text-[13px] transition-colors ${
+                  isHidden ? "text-grey-300" : "text-grey-600 hover:text-grey-900"
+                }`}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: isHidden ? "#d1d6db" : item.color }}
+                />
+                <span className={isHidden ? "line-through" : ""}>{item.label}</span>
+              </button>
+            ) : (
+              <span className="flex items-center gap-1.5 text-[13px] text-grey-600">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+                {item.label}
+              </span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -190,8 +225,8 @@ export function MetricChart({
       {growth.length > 0 && (
         <ChartLegend
           items={[
-            [name, color],
-            ...growth.map((item) => [item.name, item.color] as [string, string]),
+            { key: "value", label: name, color },
+            ...growth.map((item) => ({ key: item.key, label: item.name, color: item.color })),
           ]}
         />
       )}
@@ -199,7 +234,10 @@ export function MetricChart({
   );
 }
 
-/** 비교 화면에서 회사마다 한 줄씩 그린다. */
+/**
+ * 비교 화면에서 회사마다, 또는 가동률처럼 부문마다 한 줄씩 그린다.
+ * 범례를 누르면 그 선만 껐다 켤 수 있다 — 선이 겹쳐 안 보일 때 쓴다.
+ */
 export function MultiLineChart({
   data,
   series,
@@ -209,6 +247,15 @@ export function MultiLineChart({
   series: Array<{ key: string; name: string; color: string }>;
   unit: "krw" | "percent";
 }) {
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const toggle = (key: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   const format = (value: number) =>
     unit === "krw" ? formatKrwShort(value) : formatPercent(value);
 
@@ -259,12 +306,17 @@ export function MultiLineChart({
                 strokeWidth={2.5}
                 connectNulls
                 dot={{ r: 3, strokeWidth: 0, fill: item.color }}
+                hide={hidden.has(item.key)}
               />
             ))}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <ChartLegend items={series.map((item) => [item.name, item.color])} />
+      <ChartLegend
+        items={series.map((item) => ({ key: item.key, label: item.name, color: item.color }))}
+        hidden={hidden}
+        onToggle={toggle}
+      />
     </div>
   );
 }

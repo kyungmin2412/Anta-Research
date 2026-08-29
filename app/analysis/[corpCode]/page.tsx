@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { EmptyState, Section } from "@/components/ui";
 import { CORP_CLASS_LABEL, getCompanyProfile } from "@/lib/company";
 import { DartError } from "@/lib/dart";
+import { BodyMetricsSection, BodyMetricsSkeleton } from "./sections";
 import {
   formatReceiptDate,
   getPeriodicReports,
@@ -156,22 +157,9 @@ async function CompanyReports({ corpCode }: { corpCode: string }) {
         )}
       </Section>
 
-      <Section
-        title="본문 지표"
-        description="가동률, 제품 가격변동, 해외 매출 비중은 보고서 본문 표에서 뽑습니다."
-      >
-        <div className="card px-5 py-5 text-[14px] leading-relaxed text-grey-600">
-          <p>
-            이 세 지표는 DART 정형 API에 없고 보고서 본문 &ldquo;II. 사업의 내용&rdquo;
-            표에만 실립니다. 표를 읽으려면 공시서류 원본을 받아 파싱해야 하는데, 아직
-            원본 형식을 확인하지 못해 넣지 않았습니다.
-          </p>
-          <p className="mt-2">
-            위 목록의 <span className="font-semibold text-grey-800">원문 →</span> 을 눌러
-            DART 뷰어에서 바로 확인할 수 있습니다.
-          </p>
-        </div>
-      </Section>
+      <Suspense fallback={<BodyMetricsSkeleton />}>
+        <BodyMetricsSection reports={reports} />
+      </Suspense>
     </>
   );
 }

@@ -192,7 +192,7 @@ async function CompanyReports({
       </Suspense>
 
       <Suspense fallback={<BodyMetricsSkeleton />}>
-        <BodyMetricsSection reports={reports} />
+        <BodyMetricsSection reports={reports} corpName={profile.corp_name} />
       </Suspense>
     </>
   );

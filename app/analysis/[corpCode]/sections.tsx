@@ -1,3 +1,4 @@
+import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { MetricChart, MultiLineChart } from "@/components/FinancialCharts";
 import { EmptyState, Section } from "@/components/ui";
 import { compareColor } from "@/lib/compare";
@@ -79,7 +80,13 @@ function periodSortKey(label: string): [number, number] {
  * 사업보고서 본문에서 뽑은 지표. 정형 API 에 없어 원문 표를 읽어야 하는 것들이다.
  * 표가 없는 회사도 많아, 못 찾은 지표는 카드를 아예 내지 않는다.
  */
-export async function BodyMetricsSection({ reports }: { reports: PeriodicReport[] }) {
+export async function BodyMetricsSection({
+  reports,
+  corpName,
+}: {
+  reports: PeriodicReport[];
+  corpName: string;
+}) {
   const metrics = await getBodyMetrics(reports);
   const utilization = utilizationSeries(metrics.utilization);
   // 품목마다 실린 기간이 다를 수 있어, 열은 모아서 만들고 값은 이름으로 찾아 넣는다.
@@ -95,6 +102,18 @@ export async function BodyMetricsSection({ reports }: { reports: PeriodicReport[
     const [by, bh] = periodSortKey(b);
     return ay - by || ah - bh;
   });
+  const subsidiaryCsvRows: Array<Array<string | number | null>> = [
+    ["종속회사", "구분", ...subsidiaryPeriods],
+    ...subsidiaryNames.flatMap((name) => {
+      const find = (period: string) =>
+        metrics.subsidiaries.find((item) => item.name === name && item.periodLabel === period);
+      return [
+        [name, "매출액", ...subsidiaryPeriods.map((period) => find(period)?.revenue ?? "")],
+        [name, "순손익", ...subsidiaryPeriods.map((period) => find(period)?.netIncome ?? "")],
+      ];
+    }),
+  ];
+
   const found =
     metrics.utilization.length +
     metrics.regionalSales.length +
@@ -170,6 +189,12 @@ export async function BodyMetricsSection({ reports }: { reports: PeriodicReport[
         <Section
           title="종속회사 실적"
           description="연결재무제표 주석의 종속기업 요약재무정보입니다. 연결 전체가 아니라 회사별 매출·순손익입니다."
+          action={
+            <DownloadCsvButton
+              filename={`${corpName}_종속회사_실적.csv`}
+              rows={subsidiaryCsvRows}
+            />
+          }
         >
           <div className="card overflow-x-auto p-5">
             <table className="w-full min-w-[520px] text-[13px]">
@@ -204,10 +229,13 @@ export async function BodyMetricsSection({ reports }: { reports: PeriodicReport[
                     })}
                   </tr>
                 ))}
-                <tr>
-                  <td colSpan={subsidiaryPeriods.length + 1} className="pt-4 pb-1 text-[12px] font-semibold text-grey-500">
-                    순손익
-                  </td>
+                <tr className="border-t border-grey-100 text-grey-500">
+                  <th className="pt-4 pb-1 text-left text-[12px] font-semibold">순손익</th>
+                  {subsidiaryPeriods.map((period) => (
+                    <th key={period} className="pt-4 pb-1 text-right font-medium">
+                      {period}
+                    </th>
+                  ))}
                 </tr>
                 {subsidiaryNames.map((name) => (
                   <tr key={`net-${name}`} className="border-t border-grey-100">

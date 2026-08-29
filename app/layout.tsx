@@ -33,14 +33,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </span>
               <span className="text-[15px] font-bold text-grey-900">Anta Research</span>
             </Link>
-            <a
-              href="https://opendart.fss.or.kr"
-              target="_blank"
-              rel="noreferrer"
-              className="text-[13px] font-medium text-grey-500 hover:text-grey-700"
-            >
-              DART 오픈API
-            </a>
+            <nav className="flex items-center gap-4">
+              <Link
+                href="/analysis"
+                className="text-[13px] font-medium text-grey-500 hover:text-grey-700"
+              >
+                개별 기업 분석
+              </Link>
+              <a
+                href="https://opendart.fss.or.kr"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[13px] font-medium text-grey-500 hover:text-grey-700"
+              >
+                DART 오픈API
+              </a>
+            </nav>
           </div>
         </header>
 

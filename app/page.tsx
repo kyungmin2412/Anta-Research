@@ -29,6 +29,12 @@ const FEATURES = [
     body: "최대 4곳까지 실적과 재무비율을 나란히 놓고 견줍니다.",
     emoji: "⚖️",
   },
+  {
+    title: "개별 기업 분석",
+    body: "기업 하나의 최근 5년치 사업·반기·분기보고서를 회계연도별로 모아 봅니다.",
+    emoji: "📄",
+    href: "/analysis",
+  },
 ];
 
 export default function HomePage() {
@@ -85,16 +91,31 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-3">
-        {FEATURES.map((feature) => (
-          <div key={feature.title} className="card p-6">
-            <div className="text-[22px]">{feature.emoji}</div>
-            <h2 className="mt-3 text-[16px] font-bold text-grey-900">{feature.title}</h2>
-            <p className="mt-1.5 text-[14px] leading-relaxed text-grey-600">
-              {feature.body}
-            </p>
-          </div>
-        ))}
+      <section className="grid gap-3 sm:grid-cols-2">
+        {FEATURES.map((feature) => {
+          const body = (
+            <>
+              <div className="text-[22px]">{feature.emoji}</div>
+              <h2 className="mt-3 text-[16px] font-bold text-grey-900">{feature.title}</h2>
+              <p className="mt-1.5 text-[14px] leading-relaxed text-grey-600">
+                {feature.body}
+              </p>
+            </>
+          );
+          return feature.href ? (
+            <Link
+              key={feature.title}
+              href={feature.href}
+              className="card p-6 transition-colors hover:bg-grey-100"
+            >
+              {body}
+            </Link>
+          ) : (
+            <div key={feature.title} className="card p-6">
+              {body}
+            </div>
+          );
+        })}
       </section>
     </div>
   );

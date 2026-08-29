@@ -316,7 +316,6 @@ export type SubsidiaryFinancialRow = {
   netIncome: number | null;
 };
 
-const CURRENT_PERIOD = /제\s*\d+\s*\(당\)\s*기/;
 const PRIOR_PERIOD = /제\s*\d+\s*\(전\)\s*기/;
 
 /**
@@ -339,8 +338,13 @@ function readSubsidiaryFinancials(
 
   for (const table of tables) {
     const header = headerText(table).replace(/\s/g, "");
-    if (!header.includes("종속기업명")) continue;
-    if (!/매출액/.test(header)) continue;
+    // 회사마다 "종속기업명"을 "기업명"으로, "매출액"을 "수익"으로, "자산/부채"를
+    // "자산총계/부채총계"로 줄여 쓴다(파마리서치 사례). 이름·자산·부채·매출·순손익
+    // 다섯 조건을 한 표에서 모두 만족할 때만 이 노트로 본다.
+    if (!/종속기업명|기업명/.test(header)) continue;
+    if (!/자산/.test(header)) continue;
+    if (!/부채/.test(header)) continue;
+    if (!/매출액|수익/.test(header)) continue;
     if (!/순손익|순이익/.test(header)) continue;
 
     const headerCells = table.grid.slice(0, table.headerRows);
@@ -352,20 +356,17 @@ function readSubsidiaryFinancials(
       }
       return -1;
     };
-    const assetsColumn = findColumn(/^자산$/);
-    const liabilitiesColumn = findColumn(/^부채$/);
-    const revenueColumn = findColumn(/매출액/);
+    const assetsColumn = findColumn(/^자산(총계)?$/);
+    const liabilitiesColumn = findColumn(/^부채(총계)?$/);
+    const revenueColumn = findColumn(/매출액|수익/);
     const netIncomeColumn = findColumn(/순손익|순이익/);
     if (revenueColumn < 0 && netIncomeColumn < 0) continue;
 
     const scale = unitScale(table.unitNote);
-    const isCurrent = CURRENT_PERIOD.test(table.context);
     const isPrior = PRIOR_PERIOD.test(table.context);
-    const year = isCurrent
-      ? report.fiscalYear
-      : isPrior
-        ? report.fiscalYear - 1
-        : null;
+    // "제 N(당) 기"처럼 당기·전기를 나눈 표시가 없는 회사는 표 하나에 "당반기말
+    // 현재"처럼 이 시점 값만 싣는다. 이때는 이 보고서 자신의 시점(당기)으로 본다.
+    const year = isPrior ? report.fiscalYear - 1 : report.fiscalYear;
 
     for (const row of table.grid.slice(table.headerRows)) {
       // 각주 번호 "(*1)" 앞뒤 공백이 표마다 들쭉날쭉해서, 그대로 두면 같은 회사가
@@ -385,11 +386,8 @@ function readSubsidiaryFinancials(
         name,
         year,
         quarterIndex: report.quarterIndex,
-        periodLabel: year
-          ? report.kind === "annual"
-            ? `${year}년`
-            : `${year}년 ${report.quarterIndex}분기`
-          : "",
+        periodLabel:
+          report.kind === "annual" ? `${year}년` : `${year}년 ${report.quarterIndex}분기`,
         assets: scaled(assetsColumn),
         liabilities: scaled(liabilitiesColumn),
         revenue,

@@ -301,12 +301,17 @@ function readBacklog(tables: ReportTable[]): BacklogRow[] {
 
 export type SubsidiaryFinancialRow = {
   name: string;
-  /** 이 값이 걸린 사업연도. 반기 보고서의 "당반기"는 그 반기가 속한 해다. */
+  /** 이 값이 걸린 사업연도. 반기·분기 보고서의 "당반기/당분기"는 그 기간이 속한 해다. */
   year: number | null;
-  /** "2026년 반기", "2025년" 처럼 표에 붙일 이름 */
+  /** 이 값이 사업연도 안에서 몇 분기 시점까지의 누적인지. 사업보고서=4, 반기보고서=2,
+   * 분기보고서는 1 또는 3. 매출·순손익이 분기 단독 실적인지 누적인지 가르는 열쇠다. */
+  quarterIndex: 1 | 2 | 3 | 4;
+  /** "2025년 2분기", "2025년"(연간) 처럼 표에 붙일 이름 */
   periodLabel: string;
   assets: number | null;
   liabilities: number | null;
+  /** 사업연도 시작부터 이 시점까지의 누적치. 분기·반기 보고서는 그대로 누적이라,
+   * 분기 단독 실적을 보려면 직전 분기 누적을 빼야 한다(report-analysis.ts 에서 처리). */
   revenue: number | null;
   netIncome: number | null;
 };
@@ -318,16 +323,19 @@ const PRIOR_PERIOD = /제\s*\d+\s*\(전\)\s*기/;
  * 연결재무제표 주석의 "종속기업의 요약재무정보" 표. 개별 종속회사(휴젤아메리카 같은)의
  * 매출·순손익을 여기서만 볼 수 있다. 정형 API 는 연결 전체 숫자만 준다.
  *
+ * 사업보고서·반기보고서뿐 아니라 분기보고서(1·3분기)에도 이 노트가 실린다. 매출·
+ * 순손익은 사업연도 시작부터의 누적치이므로 여기서는 원문 값 그대로만 뽑고, 분기
+ * 단독 실적으로 바꾸는 일은 여러 보고서를 함께 보는 report-analysis.ts 에 맡긴다.
+ *
  * 이 표는 "당기"와 "전기" 두 벌을 나란히 싣는데, 표 앞의 "① 제 26(당) 기 반기" 같은
  * 표시가 caption 으로 잡히지 않는 경우가 있어(다른 후보 문장이 정규식에 먼저 걸려서)
  * context 전체를 훑어 당기·전기를 가른다.
  */
 function readSubsidiaryFinancials(
   tables: ReportTable[],
-  report: { fiscalYear: number; kind: string },
+  report: { fiscalYear: number; kind: string; quarterIndex: 1 | 2 | 3 | 4 },
 ): SubsidiaryFinancialRow[] {
   const rows: SubsidiaryFinancialRow[] = [];
-  const periodSuffix = report.kind === "half" ? " 반기" : report.kind === "quarter" ? " 분기" : "";
 
   for (const table of tables) {
     const header = headerText(table).replace(/\s/g, "");
@@ -376,7 +384,12 @@ function readSubsidiaryFinancials(
       rows.push({
         name,
         year,
-        periodLabel: year ? `${year}년${periodSuffix}` : "",
+        quarterIndex: report.quarterIndex,
+        periodLabel: year
+          ? report.kind === "annual"
+            ? `${year}년`
+            : `${year}년 ${report.quarterIndex}분기`
+          : "",
         assets: scaled(assetsColumn),
         liabilities: scaled(liabilitiesColumn),
         revenue,
@@ -395,7 +408,7 @@ function readSubsidiaryFinancials(
  */
 export function readReportMetrics(
   sections: ReportSection[],
-  report: { fiscalYear: number; kind: string },
+  report: { fiscalYear: number; kind: string; quarterIndex: 1 | 2 | 3 | 4 },
 ): ReportMetrics {
   const business = findSection(sections, "사업의 내용")?.tables ?? [];
   const finance = findSection(sections, "재무에 관한 사항")?.tables ?? [];

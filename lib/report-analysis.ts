@@ -26,6 +26,9 @@ const MAX_DOCUMENTS = 5;
 // 종속기업 실적은 사업보고서뿐 아니라 반기보고서 주석에도 실린다. 최근 걸 더 보태면
 // 사업연도 사이 빈 구간이 반기 단위로 채워진다.
 const MAX_HALF_DOCUMENTS = 4;
+// 분기보고서(1·3분기)에도 같은 노트가 실린다. 사업연도당 두 건(1분기·3분기)이라
+// 4건이면 최근 2개년치 분기 실적을 채울 수 있다.
+const MAX_QUARTER_DOCUMENTS = 4;
 
 /** 품목을 가리키는 열쇠. 품목 이름에 공백이 흔해 문자열로 이어 붙이면 안 된다. */
 function itemKey(segment: string, item: string): string {
@@ -47,7 +50,11 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
     .filter((report) => report.kind === "half")
     .sort((a, b) => b.rceptNo.localeCompare(a.rceptNo))
     .slice(0, MAX_HALF_DOCUMENTS);
-  const documents = [...annual, ...half];
+  const quarter = reports
+    .filter((report) => report.kind === "quarter")
+    .sort((a, b) => b.rceptNo.localeCompare(a.rceptNo))
+    .slice(0, MAX_QUARTER_DOCUMENTS);
+  const documents = [...annual, ...half, ...quarter];
 
   const results = await Promise.all(
     documents.map(async (report) => {
@@ -67,7 +74,7 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
   const regionalSales = new Map<number | string, RegionalSales>();
   const priceRows = new Map<string, PriceRow>();
   const priceSeen = new Set<string>();
-  const subsidiaries = new Map<string, SubsidiaryFinancialRow>();
+  const rawSubsidiaries = new Map<string, SubsidiaryFinancialRow>();
   let backlog: BacklogRow[] = [];
   const sources: BodyMetrics["sources"] = [];
   let failed = 0;
@@ -117,14 +124,36 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
     }
 
     for (const row of metrics.subsidiaries) {
-      // 같은 이름·연도라도 사업보고서는 연간, 반기보고서는 반기 값이라 따로 둔다.
-      const key = `${row.name}#${row.year}#${report.kind}`;
-      if (!subsidiaries.has(key)) subsidiaries.set(key, row);
+      if (row.year === null) continue;
+      // 같은 이름·연도라도 몇 분기 시점까지의 누적인지가 다르면 따로 둔다.
+      const key = `${row.name}#${row.year}#${row.quarterIndex}`;
+      if (!rawSubsidiaries.has(key)) rawSubsidiaries.set(key, row);
     }
   }
 
   for (const row of priceRows.values()) {
     row.values.sort((a, b) => (a.year ?? 0) - (b.year ?? 0));
+  }
+
+  // 종속기업 매출·순손익은 사업연도 시작부터의 누적치다. 1분기는 그 자체로 분기
+  // 단독 실적이고, 사업보고서(4분기 시점)는 연간 총액을 그대로 보여주고 싶어 손대지
+  // 않는다. 2·3분기는 직전 분기 누적을 빼야 그 분기만의 실적이 나온다(2분기 실적 =
+  // 반기 누적 − 1분기). 직전 분기 자료가 없으면 억지로 추정하지 않고 비워 둔다.
+  const subtract = (current: number | null, previous: number | null | undefined) =>
+    current === null || previous == null ? null : current - previous;
+
+  const subsidiaries = new Map<string, SubsidiaryFinancialRow>();
+  for (const [key, raw] of rawSubsidiaries) {
+    if (raw.quarterIndex === 1 || raw.quarterIndex === 4) {
+      subsidiaries.set(key, raw);
+      continue;
+    }
+    const previous = rawSubsidiaries.get(`${raw.name}#${raw.year}#${raw.quarterIndex - 1}`);
+    subsidiaries.set(key, {
+      ...raw,
+      revenue: subtract(raw.revenue, previous?.revenue),
+      netIncome: subtract(raw.netIncome, previous?.netIncome),
+    });
   }
 
   return {

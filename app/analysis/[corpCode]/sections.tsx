@@ -68,10 +68,11 @@ function priceColumnName(value: { year: number | null; label: string }): string 
   return value.year ? `${value.year}년` : value.label;
 }
 
-/** "2026년" 다음에 "2026년 반기"가 오도록. 반기 시점이 그 해 안에서 더 이르다. */
+/** "2025년 1분기" → "2025년 2분기" → "2025년 3분기" → "2025년"(연간) 순으로. */
 function periodSortKey(label: string): [number, number] {
   const year = Number(label.match(/\d{4}/)?.[0] ?? 0);
-  return [year, label.includes("반기") || label.includes("분기") ? 0 : 1];
+  const quarter = Number(label.match(/(\d)분기/)?.[1] ?? 9);
+  return [year, quarter];
 }
 
 /**

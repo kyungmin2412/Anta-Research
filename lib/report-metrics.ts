@@ -122,6 +122,7 @@ export type ReportMetrics = {
   regionalSales: RegionalSales[];
   priceChanges: PriceRow[];
   backlog: BacklogRow[];
+  subsidiaries: SubsidiaryFinancialRow[];
   /** 금액 표의 단위 문구. 자릿수를 의심할 때 보라고 남긴다. */
   salesUnitNote: string;
 };
@@ -298,20 +299,114 @@ function readBacklog(tables: ReportTable[]): BacklogRow[] {
   return [];
 }
 
-/** 보고서 하나에서 본문 지표를 모두 뽑는다. */
+export type SubsidiaryFinancialRow = {
+  name: string;
+  /** 이 값이 걸린 사업연도. 반기 보고서의 "당반기"는 그 반기가 속한 해다. */
+  year: number | null;
+  /** "2026년 반기", "2025년" 처럼 표에 붙일 이름 */
+  periodLabel: string;
+  assets: number | null;
+  liabilities: number | null;
+  revenue: number | null;
+  netIncome: number | null;
+};
+
+const CURRENT_PERIOD = /제\s*\d+\s*\(당\)\s*기/;
+const PRIOR_PERIOD = /제\s*\d+\s*\(전\)\s*기/;
+
+/**
+ * 연결재무제표 주석의 "종속기업의 요약재무정보" 표. 개별 종속회사(휴젤아메리카 같은)의
+ * 매출·순손익을 여기서만 볼 수 있다. 정형 API 는 연결 전체 숫자만 준다.
+ *
+ * 이 표는 "당기"와 "전기" 두 벌을 나란히 싣는데, 표 앞의 "① 제 26(당) 기 반기" 같은
+ * 표시가 caption 으로 잡히지 않는 경우가 있어(다른 후보 문장이 정규식에 먼저 걸려서)
+ * context 전체를 훑어 당기·전기를 가른다.
+ */
+function readSubsidiaryFinancials(
+  tables: ReportTable[],
+  report: { fiscalYear: number; kind: string },
+): SubsidiaryFinancialRow[] {
+  const rows: SubsidiaryFinancialRow[] = [];
+  const periodSuffix = report.kind === "half" ? " 반기" : report.kind === "quarter" ? " 분기" : "";
+
+  for (const table of tables) {
+    const header = headerText(table).replace(/\s/g, "");
+    if (!header.includes("종속기업명")) continue;
+    if (!/매출액/.test(header)) continue;
+    if (!/순손익|순이익/.test(header)) continue;
+
+    const headerCells = table.grid.slice(0, table.headerRows);
+    const findColumn = (pattern: RegExp) => {
+      for (let column = 0; column < (table.grid[0]?.length ?? 0); column++) {
+        if (headerCells.some((row) => pattern.test((row[column] ?? "").replace(/\s/g, "")))) {
+          return column;
+        }
+      }
+      return -1;
+    };
+    const assetsColumn = findColumn(/^자산$/);
+    const liabilitiesColumn = findColumn(/^부채$/);
+    const revenueColumn = findColumn(/매출액/);
+    const netIncomeColumn = findColumn(/순손익|순이익/);
+    if (revenueColumn < 0 && netIncomeColumn < 0) continue;
+
+    const scale = unitScale(table.unitNote);
+    const isCurrent = CURRENT_PERIOD.test(table.context);
+    const isPrior = PRIOR_PERIOD.test(table.context);
+    const year = isCurrent
+      ? report.fiscalYear
+      : isPrior
+        ? report.fiscalYear - 1
+        : null;
+
+    for (const row of table.grid.slice(table.headerRows)) {
+      // 각주 번호 "(*1)" 앞뒤 공백이 표마다 들쭉날쭉해서, 그대로 두면 같은 회사가
+      // 당기·전기 표에서 다른 이름으로 갈려 표가 두 줄로 쪼개진다.
+      const name = (row[0] ?? "").replace(/\s*\(\*\d+\)\s*$/, "").trim();
+      if (!name || /^(계|합계|소계)/.test(name)) continue;
+      const scaled = (column: number) => {
+        if (column < 0) return null;
+        const value = parseNumber(row[column] ?? "");
+        return value === null ? null : value * scale;
+      };
+      const revenue = scaled(revenueColumn);
+      const netIncome = scaled(netIncomeColumn);
+      if (revenue === null && netIncome === null) continue;
+
+      rows.push({
+        name,
+        year,
+        periodLabel: year ? `${year}년${periodSuffix}` : "",
+        assets: scaled(assetsColumn),
+        liabilities: scaled(liabilitiesColumn),
+        revenue,
+        netIncome,
+      });
+    }
+  }
+  return rows;
+}
+
+/**
+ * 보고서 하나에서 본문 지표를 모두 뽑는다.
+ *
+ * 가동률·해외매출·가격변동·수주잔고는 "II. 사업의 내용"에만 있고, 종속기업 실적은
+ * "III. 재무에 관한 사항"의 연결재무제표 주석에 있다. 두 구간을 따로 찾는다.
+ */
 export function readReportMetrics(
   sections: ReportSection[],
-  fiscalYear: number,
+  report: { fiscalYear: number; kind: string },
 ): ReportMetrics {
-  const business = findSection(sections, "사업의 내용");
-  const tables = business?.tables ?? [];
-  const regional = readRegionalSales(tables, fiscalYear);
+  const business = findSection(sections, "사업의 내용")?.tables ?? [];
+  const finance = findSection(sections, "재무에 관한 사항")?.tables ?? [];
+  const regional = readRegionalSales(business, report.fiscalYear);
 
   return {
-    utilization: readUtilization(tables, fiscalYear),
+    utilization: readUtilization(business, report.fiscalYear),
     regionalSales: regional.rows,
-    priceChanges: readPriceChanges(tables, fiscalYear),
-    backlog: readBacklog(tables),
+    priceChanges: readPriceChanges(business, report.fiscalYear),
+    backlog: readBacklog(business),
+    subsidiaries: readSubsidiaryFinancials(finance, report),
     salesUnitNote: regional.unitNote,
   };
 }

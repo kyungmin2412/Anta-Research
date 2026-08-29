@@ -12,6 +12,11 @@ import { dartBinary } from "./dart";
 export type ReportTable = {
   /** 표 바로 앞에 오는 소제목. 없을 수 있다. */
   caption: string;
+  /**
+   * 표 앞 문단을 이어붙인 글. caption 이 그중 하나만 고르기 때문에, "① 제 26(당) 기
+   * 반기"처럼 정규식에 안 걸리는 기간 표시를 찾으려면 이 필드를 따로 훑어야 한다.
+   */
+  context: string;
   /** "(단위 : 억원, %)" 처럼 표 앞이나 첫 줄에 적힌 단위 문구. */
   unitNote: string;
   /** 병합셀을 펼친 격자. 모든 줄의 칸 수가 같다. */
@@ -132,7 +137,7 @@ function readTable(html: string, before: string): ReportTable {
     candidates.at(-1) ??
     "";
 
-  return { caption, unitNote, grid, headerRows };
+  return { caption, context: candidates.join(" "), unitNote, grid, headerRows };
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   type BacklogRow,
   type PriceRow,
   type RegionalSales,
+  type SubsidiaryFinancialRow,
   type UtilizationRow,
 } from "./report-metrics";
 import type { PeriodicReport } from "./reports";
@@ -14,6 +15,7 @@ export type BodyMetrics = {
   regionalSales: RegionalSales[];
   priceChanges: PriceRow[];
   backlog: BacklogRow[];
+  subsidiaries: SubsidiaryFinancialRow[];
   /** 실제로 읽어낸 보고서 */
   sources: Array<{ rceptNo: string; fiscalYear: number; viewerUrl: string }>;
   /** 받아오지 못한 보고서 수 */
@@ -21,6 +23,9 @@ export type BodyMetrics = {
 };
 
 const MAX_DOCUMENTS = 5;
+// 종속기업 실적은 사업보고서뿐 아니라 반기보고서 주석에도 실린다. 최근 걸 더 보태면
+// 사업연도 사이 빈 구간이 반기 단위로 채워진다.
+const MAX_HALF_DOCUMENTS = 4;
 
 /** 품목을 가리키는 열쇠. 품목 이름에 공백이 흔해 문자열로 이어 붙이면 안 된다. */
 function itemKey(segment: string, item: string): string {
@@ -38,12 +43,20 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
     .filter((report) => report.kind === "annual")
     .sort((a, b) => b.fiscalYear - a.fiscalYear)
     .slice(0, MAX_DOCUMENTS);
+  const half = reports
+    .filter((report) => report.kind === "half")
+    .sort((a, b) => b.rceptNo.localeCompare(a.rceptNo))
+    .slice(0, MAX_HALF_DOCUMENTS);
+  const documents = [...annual, ...half];
 
   const results = await Promise.all(
-    annual.map(async (report) => {
+    documents.map(async (report) => {
       try {
-        const sections = await getReportDocument(report.rceptNo, ["사업의 내용"]);
-        return { report, metrics: readReportMetrics(sections, report.fiscalYear) };
+        const sections = await getReportDocument(report.rceptNo, [
+          "사업의 내용",
+          "재무에 관한 사항",
+        ]);
+        return { report, metrics: readReportMetrics(sections, report) };
       } catch {
         return { report, metrics: null };
       }
@@ -54,6 +67,7 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
   const regionalSales = new Map<number | string, RegionalSales>();
   const priceRows = new Map<string, PriceRow>();
   const priceSeen = new Set<string>();
+  const subsidiaries = new Map<string, SubsidiaryFinancialRow>();
   let backlog: BacklogRow[] = [];
   const sources: BodyMetrics["sources"] = [];
   let failed = 0;
@@ -68,7 +82,8 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
       metrics.utilization.length +
       metrics.regionalSales.length +
       metrics.priceChanges.length +
-      metrics.backlog.length;
+      metrics.backlog.length +
+      metrics.subsidiaries.length;
     if (found > 0) {
       sources.push({
         rceptNo: report.rceptNo,
@@ -77,25 +92,35 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
       });
     }
 
-    for (const row of metrics.utilization) {
-      const key = `${itemKey(row.segment, row.item)}#${row.year ?? report.fiscalYear}`;
-      if (!utilization.has(key)) utilization.set(key, row);
-    }
-    for (const row of metrics.regionalSales) {
-      const key = row.year ?? row.label;
-      if (!regionalSales.has(key)) regionalSales.set(key, row);
-    }
-    for (const row of metrics.priceChanges) {
-      const bucket = priceRows.get(row.item) ?? { item: row.item, values: [] };
-      for (const value of row.values) {
-        const key = `${row.item}#${value.year ?? value.label}`;
-        if (priceSeen.has(key)) continue;
-        priceSeen.add(key);
-        bucket.values.push(value);
+    // "사업의 내용" 지표는 사업보고서에만 온전히 실린다. 반기보고서는 종속기업
+    // 실적만 쓰고 이쪽은 건드리지 않는다.
+    if (report.kind === "annual") {
+      for (const row of metrics.utilization) {
+        const key = `${itemKey(row.segment, row.item)}#${row.year ?? report.fiscalYear}`;
+        if (!utilization.has(key)) utilization.set(key, row);
       }
-      priceRows.set(row.item, bucket);
+      for (const row of metrics.regionalSales) {
+        const key = row.year ?? row.label;
+        if (!regionalSales.has(key)) regionalSales.set(key, row);
+      }
+      for (const row of metrics.priceChanges) {
+        const bucket = priceRows.get(row.item) ?? { item: row.item, values: [] };
+        for (const value of row.values) {
+          const key = `${row.item}#${value.year ?? value.label}`;
+          if (priceSeen.has(key)) continue;
+          priceSeen.add(key);
+          bucket.values.push(value);
+        }
+        priceRows.set(row.item, bucket);
+      }
+      if (backlog.length === 0) backlog = metrics.backlog;
     }
-    if (backlog.length === 0) backlog = metrics.backlog;
+
+    for (const row of metrics.subsidiaries) {
+      // 같은 이름·연도라도 사업보고서는 연간, 반기보고서는 반기 값이라 따로 둔다.
+      const key = `${row.name}#${row.year}#${report.kind}`;
+      if (!subsidiaries.has(key)) subsidiaries.set(key, row);
+    }
   }
 
   for (const row of priceRows.values()) {
@@ -112,6 +137,9 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
     regionalSales: [...regionalSales.values()].sort((a, b) => (a.year ?? 0) - (b.year ?? 0)),
     priceChanges: [...priceRows.values()],
     backlog,
+    subsidiaries: [...subsidiaries.values()].sort(
+      (a, b) => a.name.localeCompare(b.name) || (a.year ?? 0) - (b.year ?? 0),
+    ),
     sources,
     failed,
   };

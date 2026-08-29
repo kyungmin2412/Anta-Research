@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { EmptyState, Section } from "@/components/ui";
 import { CORP_CLASS_LABEL, getCompanyProfile } from "@/lib/company";
 import { DartError } from "@/lib/dart";
-import { BodyMetricsSection, BodyMetricsSkeleton } from "./sections";
+import { BodyMetricsSection, BodyMetricsSkeleton, InventorySection } from "./sections";
 import {
   formatReceiptDate,
   getPeriodicReports,
@@ -156,6 +156,10 @@ async function CompanyReports({ corpCode }: { corpCode: string }) {
           </div>
         )}
       </Section>
+
+      <Suspense fallback={<BodyMetricsSkeleton />}>
+        <InventorySection corpCode={corpCode} />
+      </Suspense>
 
       <Suspense fallback={<BodyMetricsSkeleton />}>
         <BodyMetricsSection reports={reports} />

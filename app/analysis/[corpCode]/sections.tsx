@@ -1,12 +1,69 @@
 import { MetricChart, MultiLineChart } from "@/components/FinancialCharts";
 import { EmptyState, Section } from "@/components/ui";
 import { compareColor } from "@/lib/compare";
+import { ANNUAL_COUNT, getAnnualSeries } from "@/lib/finance";
 import { formatKrw } from "@/lib/format";
 import { getBodyMetrics, utilizationSeries } from "@/lib/report-analysis";
 import type { PeriodicReport } from "@/lib/reports";
 
+/**
+ * 재고자산 추이. 사업보고서 본문이 아니라 재무제표 API 값이라 파싱이 필요 없지만,
+ * "이 회사만의 변동"을 한 화면에서 보고 싶다는 요청이라 여기 같이 둔다.
+ */
+export async function InventorySection({ corpCode }: { corpCode: string }) {
+  const series = await getAnnualSeries(corpCode, ANNUAL_COUNT);
+  const points = series.periods.filter((period) => period.inventories !== null);
+  if (points.length === 0) return null;
+
+  const latest = points.at(-1)!;
+  const before = points.length > 1 ? points.at(-2)! : null;
+  const change =
+    before && before.inventories
+      ? ((latest.inventories! - before.inventories) / before.inventories) * 100
+      : null;
+
+  return (
+    <Section
+      title="재고자산 추이"
+      description={`최근 ${points.length}개 사업연도 · ${series.fsDiv === "CFS" ? "연결" : "별도"}재무제표`}
+    >
+      <div className="card p-5">
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="text-[15px] font-bold text-grey-900">재고자산</p>
+          <div className="text-right">
+            <p className="tnum text-[18px] font-bold text-grey-900">
+              {formatKrw(latest.inventories)}
+            </p>
+            {change !== null && (
+              <p
+                className={`tnum text-[12px] font-medium ${change >= 0 ? "text-red-500" : "text-blue-600"}`}
+              >
+                전년比 {change > 0 ? "+" : ""}
+                {change.toFixed(1)}%
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="mt-3">
+          <MetricChart
+            name="재고자산"
+            unit="krw"
+            data={points.map((period) => ({ label: period.label, value: period.inventories }))}
+          />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 function priceColumnName(value: { year: number | null; label: string }): string {
   return value.year ? `${value.year}년` : value.label;
+}
+
+/** "2026년" 다음에 "2026년 반기"가 오도록. 반기 시점이 그 해 안에서 더 이르다. */
+function periodSortKey(label: string): [number, number] {
+  const year = Number(label.match(/\d{4}/)?.[0] ?? 0);
+  return [year, label.includes("반기") || label.includes("분기") ? 0 : 1];
 }
 
 /**
@@ -21,11 +78,20 @@ export async function BodyMetricsSection({ reports }: { reports: PeriodicReport[
   const priceColumns = [
     ...new Set(metrics.priceChanges.flatMap((row) => row.values.map(priceColumnName))),
   ].sort();
+  const subsidiaryNames = [...new Set(metrics.subsidiaries.map((row) => row.name))];
+  const subsidiaryPeriods = [
+    ...new Set(metrics.subsidiaries.map((row) => row.periodLabel).filter(Boolean)),
+  ].sort((a, b) => {
+    const [ay, ah] = periodSortKey(a);
+    const [by, bh] = periodSortKey(b);
+    return ay - by || ah - bh;
+  });
   const found =
     metrics.utilization.length +
     metrics.regionalSales.length +
     metrics.priceChanges.length +
-    metrics.backlog.length;
+    metrics.backlog.length +
+    metrics.subsidiaries.length;
 
   if (found === 0) {
     return (
@@ -87,6 +153,76 @@ export async function BodyMetricsSection({ reports }: { reports: PeriodicReport[
                 </tbody>
               </table>
             </div>
+          </div>
+        </Section>
+      )}
+
+      {subsidiaryNames.length > 0 && (
+        <Section
+          title="종속회사 실적"
+          description="연결재무제표 주석의 종속기업 요약재무정보입니다. 연결 전체가 아니라 회사별 매출·순손익입니다."
+        >
+          <div className="card overflow-x-auto p-5">
+            <table className="w-full min-w-[520px] text-[13px]">
+              <thead>
+                <tr className="text-grey-500">
+                  <th className="py-2 text-left font-medium">종속회사</th>
+                  {subsidiaryPeriods.map((period) => (
+                    <th key={period} className="py-2 text-right font-medium">
+                      {period}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={subsidiaryPeriods.length + 1} className="pt-3 pb-1 text-[12px] font-semibold text-grey-500">
+                    매출액
+                  </td>
+                </tr>
+                {subsidiaryNames.map((name) => (
+                  <tr key={`revenue-${name}`} className="border-t border-grey-100">
+                    <td className="py-2 break-keep text-grey-900">{name}</td>
+                    {subsidiaryPeriods.map((period) => {
+                      const row = metrics.subsidiaries.find(
+                        (item) => item.name === name && item.periodLabel === period,
+                      );
+                      return (
+                        <td key={period} className="tnum py-2 text-right text-grey-700">
+                          {row?.revenue != null ? formatKrw(row.revenue) : "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={subsidiaryPeriods.length + 1} className="pt-4 pb-1 text-[12px] font-semibold text-grey-500">
+                    순손익
+                  </td>
+                </tr>
+                {subsidiaryNames.map((name) => (
+                  <tr key={`net-${name}`} className="border-t border-grey-100">
+                    <td className="py-2 break-keep text-grey-900">{name}</td>
+                    {subsidiaryPeriods.map((period) => {
+                      const row = metrics.subsidiaries.find(
+                        (item) => item.name === name && item.periodLabel === period,
+                      );
+                      const value = row?.netIncome ?? null;
+                      return (
+                        <td
+                          key={period}
+                          className={`tnum py-2 text-right ${
+                            value !== null && value < 0 ? "text-blue-600" : "text-grey-700"
+                          }`}
+                        >
+                          {value != null ? formatKrw(value) : "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Section>
       )}

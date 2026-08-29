@@ -65,8 +65,13 @@ export async function InventorySection({
   );
 }
 
-function priceColumnName(value: { year: number | null; label: string }): string {
-  return value.year ? `${value.year}년` : value.label;
+function priceColumnName(value: {
+  year: number | null;
+  quarterIndex: number | null;
+  label: string;
+}): string {
+  if (!value.year) return value.label;
+  return value.quarterIndex ? `${value.year}년 ${value.quarterIndex}분기` : `${value.year}년`;
 }
 
 /** "2025년 1분기" → "2025년 2분기" → "2025년 3분기" → "2025년"(연간) 순으로. */
@@ -83,16 +88,33 @@ function periodSortKey(label: string): [number, number] {
 export async function BodyMetricsSection({
   reports,
   corpName,
+  granularity,
 }: {
   reports: PeriodicReport[];
   corpName: string;
+  granularity: Granularity;
 }) {
   const metrics = await getBodyMetrics(reports);
-  const utilization = utilizationSeries(metrics.utilization);
+  // 가동률·가격변동은 사업보고서의 연간 전체 값(quarterIndex 없음)과 분기·반기
+  // 보고서의 자기 시점 값(quarterIndex 있음)이 한 배열에 같이 담겨 온다. 토글에
+  // 맞는 쪽만 걸러서 쓴다.
+  const isQuarterGranularity = granularity === "quarter";
+  const utilizationRows = metrics.utilization.filter((row) =>
+    isQuarterGranularity ? row.quarterIndex !== null : row.quarterIndex === null,
+  );
+  const priceChangeRows = metrics.priceChanges
+    .map((row) => ({
+      ...row,
+      values: row.values.filter((value) =>
+        isQuarterGranularity ? value.quarterIndex !== null : value.quarterIndex === null,
+      ),
+    }))
+    .filter((row) => row.values.length > 0);
+  const utilization = utilizationSeries(utilizationRows);
   // 품목마다 실린 기간이 다를 수 있어, 열은 모아서 만들고 값은 이름으로 찾아 넣는다.
   // 열을 첫 줄에 맞춰 두면 기간이 어긋난 회사에서 다른 해 숫자가 그 자리에 들어간다.
   const priceColumns = [
-    ...new Set(metrics.priceChanges.flatMap((row) => row.values.map(priceColumnName))),
+    ...new Set(priceChangeRows.flatMap((row) => row.values.map(priceColumnName))),
   ].sort();
   const subsidiaryNames = [...new Set(metrics.subsidiaries.map((row) => row.name))];
   const subsidiaryPeriods = [
@@ -267,7 +289,11 @@ export async function BodyMetricsSection({
       {utilization.series.length > 0 && (
         <Section
           title="가동률"
-          description="사업보고서 &ldquo;생산능력 및 생산실적&rdquo; 표의 평균가동률입니다."
+          description={
+            isQuarterGranularity
+              ? "사업보고서·반기보고서·분기보고서 &ldquo;생산능력 및 생산실적&rdquo; 표의 그 시점 평균가동률입니다."
+              : "사업보고서 &ldquo;생산능력 및 생산실적&rdquo; 표의 평균가동률입니다."
+          }
         >
           <div className="card p-5">
             {utilization.data.length > 1 ? (
@@ -281,7 +307,7 @@ export async function BodyMetricsSection({
               />
             ) : (
               <ul className="space-y-2">
-                {metrics.utilization.map((row) => (
+                {utilizationRows.map((row) => (
                   <li
                     key={`${row.segment}-${row.item}-${row.year}`}
                     className="flex items-baseline justify-between gap-4 border-b border-grey-100 pb-2 last:border-0"
@@ -301,7 +327,7 @@ export async function BodyMetricsSection({
             )}
             {utilization.data.length <= 1 && (
               <p className="mt-3 text-[13px] text-grey-500">
-                이 회사는 사업보고서에 당기 가동률만 실어 추이를 그리지 못했습니다.
+                이 회사는 이 시점의 가동률만 실어 추이를 그리지 못했습니다.
               </p>
             )}
           </div>
@@ -326,7 +352,7 @@ export async function BodyMetricsSection({
                 </tr>
               </thead>
               <tbody>
-                {metrics.priceChanges.map((row) => (
+                {priceChangeRows.map((row) => (
                   <tr key={row.item} className="border-t border-grey-100">
                     <td className="py-2 font-semibold break-keep text-grey-900">{row.item}</td>
                     {priceColumns.map((column) => (

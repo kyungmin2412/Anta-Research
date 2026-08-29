@@ -101,28 +101,31 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
       });
     }
 
-    // "사업의 내용" 지표는 사업보고서에만 온전히 실린다. 반기보고서는 종속기업
-    // 실적만 쓰고 이쪽은 건드리지 않는다.
+    // 지역별 매출·수주잔고는 사업보고서에만 온전히 실린다고 보고 그쪽만 쓴다.
+    // 가동률·가격변동은 분기·반기보고서에도 자기 시점 칸("제57기 1분기")으로
+    // 실려서 아래에서 따로(연간 제한 없이) 모은다.
     if (report.kind === "annual") {
-      for (const row of metrics.utilization) {
-        const key = `${itemKey(row.segment, row.item)}#${row.year ?? report.fiscalYear}`;
-        if (!utilization.has(key)) utilization.set(key, row);
-      }
       for (const row of metrics.regionalSales) {
         const key = row.year ?? row.label;
         if (!regionalSales.has(key)) regionalSales.set(key, row);
       }
-      for (const row of metrics.priceChanges) {
-        const bucket = priceRows.get(row.item) ?? { item: row.item, values: [] };
-        for (const value of row.values) {
-          const key = `${row.item}#${value.year ?? value.label}`;
-          if (priceSeen.has(key)) continue;
-          priceSeen.add(key);
-          bucket.values.push(value);
-        }
-        priceRows.set(row.item, bucket);
-      }
       if (backlog.length === 0) backlog = metrics.backlog;
+    }
+
+    for (const row of metrics.utilization) {
+      // 같은 항목·연도라도 연간 전체 값과 분기 값은 따로 둔다.
+      const key = `${itemKey(row.segment, row.item)}#${row.year ?? report.fiscalYear}#${row.quarterIndex ?? "y"}`;
+      if (!utilization.has(key)) utilization.set(key, row);
+    }
+    for (const row of metrics.priceChanges) {
+      const bucket = priceRows.get(row.item) ?? { item: row.item, values: [] };
+      for (const value of row.values) {
+        const key = `${row.item}#${value.year ?? value.label}#${value.quarterIndex ?? "y"}`;
+        if (priceSeen.has(key)) continue;
+        priceSeen.add(key);
+        bucket.values.push(value);
+      }
+      priceRows.set(row.item, bucket);
     }
 
     for (const row of metrics.subsidiaries) {
@@ -179,7 +182,8 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
       (a, b) =>
         a.segment.localeCompare(b.segment) ||
         a.item.localeCompare(b.item) ||
-        (a.year ?? 0) - (b.year ?? 0),
+        (a.year ?? 0) - (b.year ?? 0) ||
+        (a.quarterIndex ?? 0) - (b.quarterIndex ?? 0),
     ),
     regionalSales: [...regionalSales.values()].sort((a, b) => (a.year ?? 0) - (b.year ?? 0)),
     priceChanges: [...priceRows.values()],
@@ -194,9 +198,16 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
 
 /** 가동률을 품목별 시계열로 바꾼다. 차트가 바로 쓸 수 있는 모양이다. */
 export function utilizationSeries(rows: UtilizationRow[]) {
-  const years = [
-    ...new Set(rows.map((row) => row.year).filter((year): year is number => year !== null)),
-  ].sort();
+  // 연간 값끼리는(quarterIndex null) 연도 하나로 묶고, 분기 값끼리는(quarterIndex
+  // 있음) 연도+분기로 묶는다. 두 종류가 한 배열에 섞여 들어오지 않는다 — 호출하는
+  // 쪽에서 이미 연간/분기 중 하나로 걸러서 넘긴다.
+  const periods = [
+    ...new Map(
+      rows
+        .filter((row) => row.year !== null)
+        .map((row) => [`${row.year}#${row.quarterIndex ?? "y"}`, { year: row.year!, quarterIndex: row.quarterIndex }]),
+    ).values(),
+  ].sort((a, b) => a.year - b.year || (a.quarterIndex ?? 0) - (b.quarterIndex ?? 0));
 
   const items: Array<{ segment: string; item: string }> = [];
   for (const row of rows) {
@@ -213,11 +224,17 @@ export function utilizationSeries(rows: UtilizationRow[]) {
         : entry.item,
   }));
 
-  const data = years.map((year) => {
-    const point: Record<string, string | number | null> = { label: `${year}` };
+  const data = periods.map(({ year, quarterIndex }) => {
+    const point: Record<string, string | number | null> = {
+      label: quarterIndex ? `${year}년 ${quarterIndex}분기` : `${year}`,
+    };
     items.forEach((entry, index) => {
       const match = rows.find(
-        (row) => row.segment === entry.segment && row.item === entry.item && row.year === year,
+        (row) =>
+          row.segment === entry.segment &&
+          row.item === entry.item &&
+          row.year === year &&
+          row.quarterIndex === quarterIndex,
       );
       point[`s${index}`] = match?.rate ?? null;
     });

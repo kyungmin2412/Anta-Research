@@ -39,16 +39,34 @@ export function unitScale(unitNote: string): number {
   return 1;
 }
 
-/** 머리글에 적힌 기간 칸을 찾는다. "제55기" 또는 "2023년" 둘 다 온다. */
-type PeriodColumn = { index: number; label: string; year: number | null };
+/** 머리글에 적힌 기간 칸을 찾는다. "제55기" 또는 "2023년", "제57기 1분기" 셋 다 온다. */
+type PeriodColumn = {
+  index: number;
+  label: string;
+  year: number | null;
+  /** "제57기 1분기"의 1, "제57기 반기"의 2. 연간 전체("제55기")면 null. */
+  quarterIndex: number | null;
+};
 
 /**
  * 칸 전체가 기간 이름일 때만 인정한다. 주석 문장 안의 "2023년부터" 같은 말을
- * 기간 칸으로 세면 열이 통째로 밀린다.
+ * 기간 칸으로 세면 열이 통째로 밀린다. 분기·반기보고서는 "제57기 1분기"처럼
+ * 자기 시점만 기수 뒤에 분기·반기를 붙여 적는다.
  */
 function isPeriodLabel(cell: string): boolean {
   const text = cell.replace(/\s/g, "");
-  return /^제\d+기(말)?(\(.*\))?$/.test(text) || /^\d{4}년(도)?(말)?$/.test(text);
+  return (
+    /^제\d+기(말)?(\(.*\))?$/.test(text) ||
+    /^\d{4}년(도)?(말)?$/.test(text) ||
+    /^제\d+기(반기|[1-4]분기)$/.test(text)
+  );
+}
+
+function periodQuarterIndex(label: string): number | null {
+  const text = label.replace(/\s/g, "");
+  const match = text.match(/(반기|([1-4])분기)$/);
+  if (!match) return null;
+  return match[1] === "반기" ? 2 : Number(match[2]);
 }
 
 function periodColumns(table: ReportTable, fiscalYear: number): PeriodColumn[] {
@@ -64,6 +82,7 @@ function periodColumns(table: ReportTable, fiscalYear: number): PeriodColumn[] {
       index: column,
       label: label.trim(),
       year: year ? Number(year[1]) : null,
+      quarterIndex: periodQuarterIndex(label),
     });
   }
 
@@ -92,6 +111,8 @@ export type UtilizationRow = {
   segment: string;
   item: string;
   year: number | null;
+  /** 이 값이 연간 전체인지 특정 분기인지. 연간이면 null. */
+  quarterIndex: number | null;
   label: string;
   /** 가동률 (%) */
   rate: number;
@@ -109,7 +130,14 @@ export type RegionalSales = {
 
 export type PriceRow = {
   item: string;
-  values: Array<{ label: string; year: number | null; text: string; value: number | null }>;
+  values: Array<{
+    label: string;
+    year: number | null;
+    /** 연간 전체면 null, 분기·반기 자기 시점 칸이면 그 분기(반기는 2). */
+    quarterIndex: number | null;
+    text: string;
+    value: number | null;
+  }>;
 };
 
 export type BacklogRow = {
@@ -131,15 +159,27 @@ export type ReportMetrics = {
  * 가동률 표: 머리글에 "가동률"이 있다. 삼성전자처럼 부문별로 표를 나눠 싣기도 하고,
  * 기수별로 가동률 칸을 여러 개 두기도 해서 칸을 모두 모은다.
  */
-function readUtilization(tables: ReportTable[], fiscalYear: number): UtilizationRow[] {
+function readUtilization(
+  tables: ReportTable[],
+  report: { fiscalYear: number; kind: string; quarterIndex: number },
+): UtilizationRow[] {
   const rows: UtilizationRow[] = [];
+  // 가동률 표에 기수 칸 자체가 없는 회사가 많다(당기 값 한 줄만 싣는다). 이때는
+  // 표에서 못 찾은 시점 정보를 이 보고서 자신의 것으로 채운다 — 분기·반기보고서를
+  // 연간으로 잘못 세면 두 값이 같은 자리에서 부딪힌다.
+  const fallbackQuarterIndex = report.kind === "annual" ? null : report.quarterIndex;
 
   for (const table of tables) {
     const header = table.grid.slice(0, Math.max(table.headerRows, 1));
     const width = table.grid[0]?.length ?? 0;
-    const periods = periodColumns(table, fiscalYear);
+    const periods = periodColumns(table, report.fiscalYear);
 
-    const rateColumns: Array<{ index: number; year: number | null; label: string }> = [];
+    const rateColumns: Array<{
+      index: number;
+      year: number | null;
+      quarterIndex: number | null;
+      label: string;
+    }> = [];
     for (let column = 0; column < width; column++) {
       const isRate = header.some((row) =>
         (row[column] ?? "").replace(/\s/g, "").includes("가동률"),
@@ -149,7 +189,8 @@ function readUtilization(tables: ReportTable[], fiscalYear: number): Utilization
       const period = periods.find((item) => item.index === column);
       rateColumns.push({
         index: column,
-        year: period?.year ?? (periods.length === 0 ? fiscalYear : null),
+        year: period?.year ?? (periods.length === 0 ? report.fiscalYear : null),
+        quarterIndex: period?.quarterIndex ?? (periods.length === 0 ? fallbackQuarterIndex : null),
         label: period?.label ?? "",
       });
     }
@@ -168,6 +209,7 @@ function readUtilization(tables: ReportTable[], fiscalYear: number): Utilization
           segment,
           item: item || segment,
           year: column.year,
+          quarterIndex: column.quarterIndex,
           label: column.label,
           rate,
         });
@@ -235,7 +277,10 @@ function readRegionalSales(
  * 가격 변동 표. 회사에 따라 단가를 숫자로 적기도 하고
  * 삼성전자처럼 "전년 대비 4% 상승" 이라고 글로 적기도 한다. 둘 다 받는다.
  */
-function readPriceChanges(tables: ReportTable[], fiscalYear: number): PriceRow[] {
+function readPriceChanges(
+  tables: ReportTable[],
+  report: { fiscalYear: number; kind: string; quarterIndex: number },
+): PriceRow[] {
   for (const table of tables) {
     const header = headerText(table).replace(/\s/g, "");
     const caption = table.caption.replace(/\s/g, "");
@@ -244,7 +289,7 @@ function readPriceChanges(tables: ReportTable[], fiscalYear: number): PriceRow[]
     // 원재료 매입가는 제품 가격이 아니다.
     if (!isPriceTable || /원재료|매입/.test(`${header}${caption}`)) continue;
 
-    const periods = periodColumns(table, fiscalYear);
+    const periods = periodColumns(table, report.fiscalYear);
     const body = table.grid.slice(table.headerRows);
     const rows: PriceRow[] = [];
 
@@ -254,13 +299,19 @@ function readPriceChanges(tables: ReportTable[], fiscalYear: number): PriceRow[]
       const values = (
         periods.length > 0
           ? periods
-          : row.slice(1).map((_, index) => ({ index: index + 1, label: "", year: null }))
+          : row.slice(1).map((_, index) => ({
+              index: index + 1,
+              label: "",
+              year: null,
+              quarterIndex: null,
+            }))
       )
         .map((period) => {
           const text = (row[period.index] ?? "").trim();
           return {
             label: period.label,
             year: period.year,
+            quarterIndex: period.quarterIndex,
             text,
             value: isNumericCell(text) ? parseNumber(text) : null,
           };
@@ -413,9 +464,9 @@ export function readReportMetrics(
   const regional = readRegionalSales(business, report.fiscalYear);
 
   return {
-    utilization: readUtilization(business, report.fiscalYear),
+    utilization: readUtilization(business, report),
     regionalSales: regional.rows,
-    priceChanges: readPriceChanges(business, report.fiscalYear),
+    priceChanges: readPriceChanges(business, report),
     backlog: readBacklog(business),
     subsidiaries: readSubsidiaryFinancials(finance, report),
     salesUnitNote: regional.unitNote,

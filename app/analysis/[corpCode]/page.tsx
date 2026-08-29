@@ -175,12 +175,12 @@ async function CompanyReports({
           options={[
             {
               value: "annual",
-              label: `재고자산 연간 ${ANNUAL_COUNT}개년`,
+              label: `연간 ${ANNUAL_COUNT}개년으로 보기`,
               href: `/analysis/${corpCode}`,
             },
             {
               value: "quarter",
-              label: `재고자산 분기 ${QUARTER_COUNT}개`,
+              label: `분기 ${QUARTER_COUNT}개로 보기`,
               href: `/analysis/${corpCode}?p=q`,
             },
           ]}
@@ -191,8 +191,12 @@ async function CompanyReports({
         <InventorySection corpCode={corpCode} granularity={granularity} />
       </Suspense>
 
-      <Suspense fallback={<BodyMetricsSkeleton />}>
-        <BodyMetricsSection reports={reports} corpName={profile.corp_name} />
+      <Suspense key={granularity} fallback={<BodyMetricsSkeleton />}>
+        <BodyMetricsSection
+          reports={reports}
+          corpName={profile.corp_name}
+          granularity={granularity}
+        />
       </Suspense>
     </>
   );

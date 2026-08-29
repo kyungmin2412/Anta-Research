@@ -136,16 +136,32 @@ export async function getBodyMetrics(reports: PeriodicReport[]): Promise<BodyMet
   }
 
   // 종속기업 매출·순손익은 사업연도 시작부터의 누적치다. 1분기는 그 자체로 분기
-  // 단독 실적이고, 사업보고서(4분기 시점)는 연간 총액을 그대로 보여주고 싶어 손대지
-  // 않는다. 2·3분기는 직전 분기 누적을 빼야 그 분기만의 실적이 나온다(2분기 실적 =
-  // 반기 누적 − 1분기). 직전 분기 자료가 없으면 억지로 추정하지 않고 비워 둔다.
+  // 단독 실적이라 손대지 않는다. 2·3분기는 직전 분기 누적을 빼야 그 분기만의
+  // 실적이 나온다(2분기 실적 = 반기 누적 − 1분기). 직전 분기 자료가 없으면 억지로
+  // 추정하지 않고 비워 둔다.
   const subtract = (current: number | null, previous: number | null | undefined) =>
     current === null || previous == null ? null : current - previous;
 
   const subsidiaries = new Map<string, SubsidiaryFinancialRow>();
   for (const [key, raw] of rawSubsidiaries) {
-    if (raw.quarterIndex === 1 || raw.quarterIndex === 4) {
+    if (raw.quarterIndex === 1) {
       subsidiaries.set(key, raw);
+      continue;
+    }
+    if (raw.quarterIndex === 4) {
+      // 사업보고서(연간)는 연간 총액 그대로도 남긴다 — 3분기 자료가 없는 옛
+      // 연도까지 값이 비어 버리는 걸 막기 위해서다.
+      subsidiaries.set(key, raw);
+      // 3분기 누적이 있으면 연간 총액에서 빼 4분기 단독 실적도 따로 만든다.
+      const q3 = rawSubsidiaries.get(`${raw.name}#${raw.year}#3`);
+      if (q3) {
+        subsidiaries.set(`${key}#4분기`, {
+          ...raw,
+          periodLabel: `${raw.year}년 4분기`,
+          revenue: subtract(raw.revenue, q3.revenue),
+          netIncome: subtract(raw.netIncome, q3.netIncome),
+        });
+      }
       continue;
     }
     const previous = rawSubsidiaries.get(`${raw.name}#${raw.year}#${raw.quarterIndex - 1}`);

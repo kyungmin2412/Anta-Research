@@ -1,6 +1,6 @@
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { MetricChart, MultiLineChart } from "@/components/FinancialCharts";
-import { EmptyState, Section } from "@/components/ui";
+import { DeltaBadge, EmptyState, Section } from "@/components/ui";
 import { compareColor } from "@/lib/compare";
 import { getFinancialSeries, type Granularity } from "@/lib/finance";
 import { formatKrw } from "@/lib/format";
@@ -135,6 +135,36 @@ export async function BodyMetricsSection({
       ];
     }),
   ];
+  const regionalCsvRows: Array<Array<string | number | null>> = [
+    ["기간", "국내", "해외", "해외 비중(%)"],
+    ...metrics.regionalSales.map((row) => [
+      row.year ? `${row.year}년` : row.label,
+      row.domestic,
+      row.overseas,
+      Number(row.overseasShare.toFixed(1)),
+    ]),
+  ];
+  const utilizationCsvRows: Array<Array<string | number | null>> = [
+    ["기간", ...utilization.series.map((item) => item.name)],
+    ...utilization.data.map((point) => [
+      point.label,
+      ...utilization.series.map((item) => point[item.key]),
+    ]),
+  ];
+  const priceCsvRows: Array<Array<string | number | null>> = [
+    ["품목", ...priceColumns],
+    ...priceChangeRows.map((row) => [
+      row.item,
+      ...priceColumns.map((column) => {
+        const found = row.values.find((value) => priceColumnName(value) === column);
+        return found ? (found.value ?? found.text) : "";
+      }),
+    ]),
+  ];
+  const backlogCsvRows: Array<Array<string | number | null>> = [
+    ["구분", ...(metrics.backlog[0]?.values.map((value) => value.label || "-") ?? [])],
+    ...metrics.backlog.map((row) => [row.item, ...row.values.map((value) => value.text)]),
+  ];
 
   const found =
     metrics.utilization.length +
@@ -163,6 +193,12 @@ export async function BodyMetricsSection({
         <Section
           title="해외 매출 비중"
           description="지역별 매출 표에서 내수·국내로 적힌 줄을 뺀 나머지를 해외로 봤습니다."
+          action={
+            <DownloadCsvButton
+              filename={`${corpName}_해외_매출_비중.csv`}
+              rows={regionalCsvRows}
+            />
+          }
         >
           <div className="card p-5">
             <MetricChart
@@ -294,6 +330,12 @@ export async function BodyMetricsSection({
               ? "사업보고서·반기보고서·분기보고서 &ldquo;생산능력 및 생산실적&rdquo; 표의 그 시점 평균가동률입니다."
               : "사업보고서 &ldquo;생산능력 및 생산실적&rdquo; 표의 평균가동률입니다."
           }
+          action={
+            <DownloadCsvButton
+              filename={`${corpName}_가동률.csv`}
+              rows={utilizationCsvRows}
+            />
+          }
         >
           <div className="card p-5">
             {utilization.data.length > 1 ? (
@@ -337,35 +379,71 @@ export async function BodyMetricsSection({
       {priceColumns.length > 0 && (
         <Section
           title="제품 가격변동 추이"
-          description="회사에 따라 단가를 숫자로, 또는 전년 대비 증감을 글로 싣습니다."
+          description="회사에 따라 단가를 숫자로, 또는 전년 대비 증감을 글로 싣습니다. 숫자로 실은 품목은 직전 기간 대비 증감률도 함께 보여줍니다."
+          action={
+            <DownloadCsvButton filename={`${corpName}_제품_가격변동.csv`} rows={priceCsvRows} />
+          }
         >
           <div className="card overflow-x-auto p-5">
-            <table className="w-full min-w-[420px] text-[13px]">
+            <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-grey-500">
-                  <th className="py-2 text-left font-medium">품목</th>
+                  <th className="sticky left-0 z-10 min-w-[120px] bg-white py-2 pr-4 text-left font-medium">
+                    품목
+                  </th>
                   {priceColumns.map((column) => (
-                    <th key={column} className="py-2 text-right font-medium">
+                    <th
+                      key={column}
+                      className="min-w-[110px] border-l border-grey-100 px-3 py-2 text-right font-medium whitespace-nowrap"
+                    >
                       {column}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {priceChangeRows.map((row) => (
-                  <tr key={row.item} className="border-t border-grey-100">
-                    <td className="py-2 font-semibold break-keep text-grey-900">{row.item}</td>
-                    {priceColumns.map((column) => (
+                {priceChangeRows.map((row, rowIndex) => {
+                  const zebra = rowIndex % 2 === 1;
+                  const cells = priceColumns.map(
+                    (column) =>
+                      row.values.find((value) => priceColumnName(value) === column) ?? null,
+                  );
+                  return (
+                    <tr
+                      key={row.item}
+                      className={`border-t border-grey-100 ${zebra ? "bg-grey-50" : ""}`}
+                    >
                       <td
-                        key={column}
-                        className="tnum py-2 text-right break-keep text-grey-700"
+                        className={`sticky left-0 z-10 py-3 pr-4 font-semibold break-keep text-grey-900 ${
+                          zebra ? "bg-grey-50" : "bg-white"
+                        }`}
                       >
-                        {row.values.find((value) => priceColumnName(value) === column)?.text ??
-                          "—"}
+                        {row.item}
                       </td>
-                    ))}
-                  </tr>
-                ))}
+                      {cells.map((cell, index) => {
+                        const previous = cells
+                          .slice(0, index)
+                          .reverse()
+                          .find((item) => item?.value != null);
+                        const delta =
+                          cell?.value != null && previous?.value
+                            ? ((cell.value - previous.value) / previous.value) * 100
+                            : null;
+                        return (
+                          <td
+                            key={priceColumns[index]}
+                            className="tnum border-l border-grey-100 px-3 py-3 text-right break-keep text-grey-700"
+                          >
+                            <div className="flex flex-col items-end gap-1">
+                              <span>{cell ? cell.text : "—"}</span>
+                              {delta !== null && <DeltaBadge value={Number(delta.toFixed(1))} />}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -373,7 +451,13 @@ export async function BodyMetricsSection({
       )}
 
       {metrics.backlog.length > 0 && (
-        <Section title="수주잔고" description="수주산업만 사업보고서에 싣습니다.">
+        <Section
+          title="수주잔고"
+          description="수주산업만 사업보고서에 싣습니다."
+          action={
+            <DownloadCsvButton filename={`${corpName}_수주잔고.csv`} rows={backlogCsvRows} />
+          }
+        >
           <div className="card overflow-x-auto p-5">
             <table className="w-full min-w-[420px] text-[13px]">
               <thead>

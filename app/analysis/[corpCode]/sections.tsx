@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { MetricChart, MultiLineChart } from "@/components/FinancialCharts";
 import { DeltaBadge, EmptyState, Section } from "@/components/ui";
@@ -255,67 +256,73 @@ export async function BodyMetricsSection({
           }
         >
           <div className="card overflow-x-auto p-5">
-            <table className="w-full min-w-[520px] text-[13px]">
+            <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-grey-500">
-                  <th className="py-2 text-left font-medium">종속회사</th>
+                  <th className="sticky left-0 z-10 min-w-[140px] bg-white py-2 pr-3 text-left font-medium">
+                    종속회사
+                  </th>
+                  <th className="min-w-[64px] py-2 pr-4 text-left font-medium">구분</th>
                   {subsidiaryPeriods.map((period) => (
-                    <th key={period} className="py-2 text-right font-medium">
+                    <th
+                      key={period}
+                      className="min-w-[96px] border-l border-grey-100 px-3 py-2 text-right font-medium whitespace-nowrap"
+                    >
                       {period}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td colSpan={subsidiaryPeriods.length + 1} className="pt-3 pb-1 text-[12px] font-semibold text-grey-500">
-                    매출액
-                  </td>
-                </tr>
-                {subsidiaryNames.map((name) => (
-                  <tr key={`revenue-${name}`} className="border-t border-grey-100">
-                    <td className="py-2 break-keep text-grey-900">{name}</td>
-                    {subsidiaryPeriods.map((period) => {
-                      const row = metrics.subsidiaries.find(
-                        (item) => item.name === name && item.periodLabel === period,
-                      );
-                      return (
-                        <td key={period} className="tnum py-2 text-right text-grey-700">
-                          {row?.revenue != null ? formatKrw(row.revenue) : "—"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-                <tr className="border-t border-grey-100 text-grey-500">
-                  <th className="pt-4 pb-1 text-left text-[12px] font-semibold">순손익</th>
-                  {subsidiaryPeriods.map((period) => (
-                    <th key={period} className="pt-4 pb-1 text-right font-medium">
-                      {period}
-                    </th>
-                  ))}
-                </tr>
-                {subsidiaryNames.map((name) => (
-                  <tr key={`net-${name}`} className="border-t border-grey-100">
-                    <td className="py-2 break-keep text-grey-900">{name}</td>
-                    {subsidiaryPeriods.map((period) => {
-                      const row = metrics.subsidiaries.find(
-                        (item) => item.name === name && item.periodLabel === period,
-                      );
-                      const value = row?.netIncome ?? null;
-                      return (
+                {subsidiaryNames.map((name, nameIndex) => {
+                  const zebra = nameIndex % 2 === 1;
+                  const rowBg = zebra ? "bg-grey-50" : "bg-white";
+                  const find = (period: string) =>
+                    metrics.subsidiaries.find(
+                      (item) => item.name === name && item.periodLabel === period,
+                    );
+                  return (
+                    <Fragment key={name}>
+                      <tr className={`border-t border-grey-200 ${zebra ? "bg-grey-50" : ""}`}>
                         <td
-                          key={period}
-                          className={`tnum py-2 text-right ${
-                            value !== null && value < 0 ? "text-blue-600" : "text-grey-700"
-                          }`}
+                          rowSpan={2}
+                          className={`sticky left-0 z-10 ${rowBg} py-2.5 pr-3 align-top font-semibold break-keep text-grey-900`}
                         >
-                          {value != null ? formatKrw(value) : "—"}
+                          {name}
                         </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                        <td className="py-2.5 pr-4 text-grey-500">매출액</td>
+                        {subsidiaryPeriods.map((period) => {
+                          const row = find(period);
+                          return (
+                            <td
+                              key={period}
+                              className="tnum border-l border-grey-100 px-3 py-2.5 text-right text-grey-700"
+                            >
+                              {row?.revenue != null ? formatKrw(row.revenue) : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      <tr className={zebra ? "bg-grey-50" : ""}>
+                        <td className="py-2.5 pr-4 text-grey-500">순손익</td>
+                        {subsidiaryPeriods.map((period) => {
+                          const row = find(period);
+                          const value = row?.netIncome ?? null;
+                          return (
+                            <td
+                              key={period}
+                              className={`tnum border-l border-grey-100 px-3 py-2.5 text-right font-semibold ${
+                                value !== null && value < 0 ? "text-blue-600" : "text-grey-900"
+                              }`}
+                            >
+                              {value != null ? formatKrw(value) : "—"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

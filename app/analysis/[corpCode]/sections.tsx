@@ -1,7 +1,7 @@
 import { MetricChart, MultiLineChart } from "@/components/FinancialCharts";
 import { EmptyState, Section } from "@/components/ui";
 import { compareColor } from "@/lib/compare";
-import { ANNUAL_COUNT, getAnnualSeries } from "@/lib/finance";
+import { getFinancialSeries, type Granularity } from "@/lib/finance";
 import { formatKrw } from "@/lib/format";
 import { getBodyMetrics, utilizationSeries } from "@/lib/report-analysis";
 import type { PeriodicReport } from "@/lib/reports";
@@ -10,8 +10,14 @@ import type { PeriodicReport } from "@/lib/reports";
  * 재고자산 추이. 사업보고서 본문이 아니라 재무제표 API 값이라 파싱이 필요 없지만,
  * "이 회사만의 변동"을 한 화면에서 보고 싶다는 요청이라 여기 같이 둔다.
  */
-export async function InventorySection({ corpCode }: { corpCode: string }) {
-  const series = await getAnnualSeries(corpCode, ANNUAL_COUNT);
+export async function InventorySection({
+  corpCode,
+  granularity,
+}: {
+  corpCode: string;
+  granularity: Granularity;
+}) {
+  const series = await getFinancialSeries(corpCode, granularity);
   const points = series.periods.filter((period) => period.inventories !== null);
   if (points.length === 0) return null;
 
@@ -21,11 +27,13 @@ export async function InventorySection({ corpCode }: { corpCode: string }) {
     before && before.inventories
       ? ((latest.inventories! - before.inventories) / before.inventories) * 100
       : null;
+  const periodUnit = granularity === "quarter" ? "분기" : "사업연도";
+  const changeLabel = granularity === "quarter" ? "전분기比" : "전년比";
 
   return (
     <Section
       title="재고자산 추이"
-      description={`최근 ${points.length}개 사업연도 · ${series.fsDiv === "CFS" ? "연결" : "별도"}재무제표`}
+      description={`최근 ${points.length}개 ${periodUnit} · ${series.fsDiv === "CFS" ? "연결" : "별도"}재무제표`}
     >
       <div className="card p-5">
         <div className="flex items-baseline justify-between gap-3">
@@ -38,7 +46,7 @@ export async function InventorySection({ corpCode }: { corpCode: string }) {
               <p
                 className={`tnum text-[12px] font-medium ${change >= 0 ? "text-red-500" : "text-blue-600"}`}
               >
-                전년比 {change > 0 ? "+" : ""}
+                {changeLabel} {change > 0 ? "+" : ""}
                 {change.toFixed(1)}%
               </p>
             )}

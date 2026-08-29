@@ -1,9 +1,10 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { EmptyState, Section } from "@/components/ui";
+import { EmptyState, Section, SegmentedTabs } from "@/components/ui";
 import { CORP_CLASS_LABEL, getCompanyProfile } from "@/lib/company";
 import { DartError } from "@/lib/dart";
+import { ANNUAL_COUNT, QUARTER_COUNT, type Granularity } from "@/lib/finance";
 import { BodyMetricsSection, BodyMetricsSkeleton, InventorySection } from "./sections";
 import {
   formatReceiptDate,
@@ -17,7 +18,10 @@ export const revalidate = 3600;
 
 const REPORT_YEARS = 5;
 
-type PageProps = { params: Promise<{ corpCode: string }> };
+type PageProps = {
+  params: Promise<{ corpCode: string }>;
+  searchParams: Promise<{ p?: string }>;
+};
 
 export async function generateMetadata({ params }: PageProps) {
   const { corpCode } = await params;
@@ -29,9 +33,11 @@ export async function generateMetadata({ params }: PageProps) {
   }
 }
 
-export default async function AnalysisPage({ params }: PageProps) {
+export default async function AnalysisPage({ params, searchParams }: PageProps) {
   const { corpCode } = await params;
   if (!/^\d{8}$/.test(corpCode)) notFound();
+  const query = await searchParams;
+  const granularity: Granularity = query.p === "q" ? "quarter" : "annual";
 
   return (
     <div className="animate-fade-up pt-8">
@@ -43,13 +49,19 @@ export default async function AnalysisPage({ params }: PageProps) {
       </Link>
 
       <Suspense fallback={<ReportsSkeleton />}>
-        <CompanyReports corpCode={corpCode} />
+        <CompanyReports corpCode={corpCode} granularity={granularity} />
       </Suspense>
     </div>
   );
 }
 
-async function CompanyReports({ corpCode }: { corpCode: string }) {
+async function CompanyReports({
+  corpCode,
+  granularity,
+}: {
+  corpCode: string;
+  granularity: Granularity;
+}) {
   let profile;
   try {
     profile = await getCompanyProfile(corpCode);
@@ -157,8 +169,26 @@ async function CompanyReports({ corpCode }: { corpCode: string }) {
         )}
       </Section>
 
-      <Suspense fallback={<BodyMetricsSkeleton />}>
-        <InventorySection corpCode={corpCode} />
+      <div className="mt-10">
+        <SegmentedTabs
+          active={granularity}
+          options={[
+            {
+              value: "annual",
+              label: `재고자산 연간 ${ANNUAL_COUNT}개년`,
+              href: `/analysis/${corpCode}`,
+            },
+            {
+              value: "quarter",
+              label: `재고자산 분기 ${QUARTER_COUNT}개`,
+              href: `/analysis/${corpCode}?p=q`,
+            },
+          ]}
+        />
+      </div>
+
+      <Suspense key={granularity} fallback={<BodyMetricsSkeleton />}>
+        <InventorySection corpCode={corpCode} granularity={granularity} />
       </Suspense>
 
       <Suspense fallback={<BodyMetricsSkeleton />}>
